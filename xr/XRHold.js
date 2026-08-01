@@ -28,10 +28,19 @@
      * dovrebbe, serve solo staccarlo un poco dalla pelle.
      * Tarabile con `XRHold.setGrip`, e persistita.
      */
-    /* Punto di partenza, non verità: rotazione Y di 90° più una seconda su Z, da
-     * verificare. L'inclinazione arbitraria di prima è stata tolta — falsava la
-     * taratura senza aggiungere nulla. */
-    const GRIP = { x: 0, y: 0.01, z: -0.02, rx: 0, ry: 90, rz: 90 };
+    /**
+     * Posa dell'oggetto in mano, tarata sul Quest 3 con `remote.glb`.
+     *
+     * Le rotazioni non sono deducibili: dipendono da come il modello è orientato
+     * nel proprio GLB, e queste sono quelle trovate provando col pannello.
+     *
+     * L'offset Y di -15 cm è grande per un oggetto che sta in mano, e vale la
+     * pena sapere perché: la centratura porta all'impugnatura il centro del
+     * *bounding box*, che per `remote.glb` non coincide con la parte che si
+     * impugna. L'offset compensa quello scarto. Se un domani il modello venisse
+     * ripulito, andrà ritarato — o meglio, non servirà più.
+     */
+    const GRIP = { x: 0.01, y: -0.15, z: -0.04, rx: 0, ry: 90, rz: -90 };
 
     const GRIP_KEY = 'cvtxr.grip';
 
