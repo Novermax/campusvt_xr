@@ -131,7 +131,9 @@
         _buildGripPanel: function () {
             const btn = document.createElement('button');
             btn.type = 'button';
-            btn.className = 'xr-log-btn';
+            // Classe propria oltre a quella condivisa: due pulsanti con lo stesso
+            // nome rendono ambiguo qualunque selettore.
+            btn.className = 'xr-log-btn xr-grip-btn';
             btn.textContent = '🎛 Impugnatura';
             btn.title = 'Regola come sta in mano l\'oggetto impugnato.';
             btn.addEventListener('click', () => this._toggleGrip());

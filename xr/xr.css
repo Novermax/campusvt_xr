@@ -153,6 +153,13 @@
     box-shadow: 0 10px 40px rgba(0, 0, 0, .55);
 }
 
+/* Obbligatorio: `[hidden] { display: none }` arriva dallo UA stylesheet e una
+   qualunque regola d'autore con `display` lo batte. Senza questa riga il
+   pannello resta visibile anche dopo `panel.hidden = true`, e la ✕ non chiude
+   nulla. Vale per ogni elemento a cui si dia un `display` esplicito. */
+.xr-log-panel[hidden],
+.xr-grip-panel[hidden] { display: none; }
+
 /* Compatta: il pannello deve stare sopra la barra senza coprirla, quindi ogni
    pixel di altezza è spazio tolto al contenuto. */
 .xr-log-head {
