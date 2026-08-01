@@ -217,6 +217,7 @@
 
                 this._suspendTouchSystem();
                 this._placeRigAtCamera();
+                if (window.XRInput) window.XRInput.init(this);
 
                 console.log(`[XR] ✅ Sessione immersiva attiva (reference space: ${this.referenceSpaceType})`);
                 this._emit('enter');
@@ -244,6 +245,8 @@
             // Se la sessione finisce con lo stick ancora premuto, il salvataggio
             // al rilascio non arriva mai: salviamo qui.
             this.persistWorldScale();
+            // Prima dei controller, poi il rig: sono suoi figli.
+            if (window.XRInput) window.XRInput.dispose();
             this._detachRig();
             this._restoreTouchSystem();
             // Il loop resta nostro (setAnimationLoop continua a girare via rAF):
@@ -285,6 +288,7 @@
                 if (self.isPresenting) {
                     self._pollScaleTuning(time);
                     self._sampleHead();
+                    if (window.XRInput) window.XRInput.update();
                 }
                 self._inFrame = true;
                 try { original(); } finally { self._inFrame = false; }

@@ -48,7 +48,8 @@ campusvt_xr/
 ├── core/                      submodule → Novermax/campusvt (READ-ONLY, shallow)
 ├── xr/                        layer WebXR — l'unico codice applicativo di questo repo
 │   ├── XRSession.js           sonda capability, sessione immersiva, XRRig, loop
-│   ├── XRButton.js            pulsante entra/esci VR
+│   ├── XRInput.js             ray dai controller, hover, trigger, aptica
+│   ├── XRButton.js            pulsante entra/esci VR, scala, altezza
 │   └── xr.css
 ├── libs-xr/                   (Milestone 2) KTX2Loader, MeshoptDecoder
 ├── assets-xr/pipeline/        (Milestone 2) gltf-transform → models-xr/
@@ -98,6 +99,24 @@ nell'inquadratura dello step corrente. Uscendo, la camera desktop è ripristinat
 identica.
 
 Stato in qualunque momento: `XRSession.debugInfo()` dalla console.
+
+#### Controller
+
+| Input | Azione |
+|---|---|
+| **Trigger** | interagisce con ciò che il raggio sta puntando |
+| **Thumbstick destro su/giù** | regola la scala del mondo |
+
+Il raggio è **grigio** quando non c'è nulla da premere, **giallo** quando è sopra
+un bersaglio interattivo; una vibrazione breve segnala l'aggancio, una più decisa
+il comando andato a segno.
+
+L'ordine di priorità replica quello del desktop (`handleModelClick`): figlio
+interattivo, poi ripiego sui pulsanti evidenziati, poi azione sul modello radice.
+Il ripiego conta: con un puntatore laser i bersagli piccoli come
+`pulpito.Pulsante_mdi` sarebbero altrimenti quasi impossibili da colpire.
+
+Stato: `XRInput.debugInfo()`.
 
 #### Scala del mondo
 
@@ -185,7 +204,7 @@ Dalla Milestone 2 la versione XR userà un set separato di modelli ottimizzati
 si ottiene sovrascrivendo `window.MODELS_WORKER_BASE` **prima** che venga caricato
 `core/js/fetchFile.js` — nessuna modifica al file a monte.
 
-### Perché serve la pipeline asset
+### Pipeline asset: rimandata, non annullata
 
 Misurato sui GLB dichiarati in `core/scenes/homeconfig.ini`:
 
@@ -194,10 +213,16 @@ Misurato sui GLB dichiarati in `core/scenes/homeconfig.ini`:
 | Manutenzione Elettromandrino | 4 | 892.238 | 110 | 25,4 MB |
 | Manutenzione pompa del vuoto | 34 | 2.096.642 | 188 | 137,2 MB |
 
-Budget realistico WebXR su Quest 3: ~300–500k triangoli/frame (rendering stereo),
-~100–200 draw call, 72 Hz. Il secondo scenario è ~4-5× oltre budget e oggi non parte
-sul visore — `core/js/modelloader.js:270` ha già un messaggio d'errore dedicato
-all'esaurimento memoria in VR.
+La pipeline era pianificata come **gate** prima di scrivere input e UI, sul
+presupposto di un budget di ~300–500k triangoli per frame. **Provato sul Quest 3,
+Elettromandrino gira fluido con 892k senza alcuna ottimizzazione**: quella soglia
+era tarata su linee guida più vecchie, e l'XR2 Gen 2 regge molto meglio.
+
+Il gate è quindi passato senza fare il lavoro, e ottimizzare adesso significherebbe
+sistemare qualcosa che non è rotto. La pipeline resta necessaria per **Pompa
+Becker** — 2,1M triangoli e 137 MB, con un errore per esaurimento memoria in VR già
+previsto in `core/js/modelloader.js:270` — e va affrontata prima di quello
+scenario, o al primo calo di frame rate misurato.
 
 ---
 
@@ -207,8 +232,8 @@ all'esaurimento memoria in VR.
 |---|---|---|
 | 0 | Setup: repo, submodule, build, deploy Pages | ✅ fatto |
 | 1 | Sessione XR: `renderer.xr`, `setAnimationLoop`, XRRig | ✅ fatto |
-| 2 | Pipeline asset → 72 Hz sullo scenario pilota | ⏳ **gate** |
-| 3 | Input: ray dai controller, highlight | ⏳ |
+| 3 | Input: ray dai controller, hover, trigger | ✅ fatto |
+| 2 | Pipeline asset | ⏸️ **rimandata** — vedi sotto |
 | 4 | UI in-world (il DOM è invisibile in `immersive-vr`) | ⏳ |
 | 5 | Utensili agganciati al controller + particelle | ⏳ |
 | 6 | Grab & snap col grip | ⏳ |
