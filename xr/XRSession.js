@@ -38,6 +38,17 @@
     const SCALE_MIN = 0.5;
     const SCALE_MAX = 4.0;
 
+    /**
+     * Scala di partenza, tarata sul Quest 3 con lo scenario Elettromandrino: alla
+     * metrica nativa dei GLB la macchina risulta miniaturizzata, e 1,25 è il valore
+     * a cui la proporzione con l'operatore torna credibile.
+     *
+     * Implica una macchina percepita di 2,80 × 1,25 = 3,50 m. Se è questa la
+     * quota reale della a500, la correzione andrebbe prima o poi fatta a monte
+     * sui modelli, non compensata qui sull'osservatore.
+     */
+    const DEFAULT_WORLD_SCALE = 1.25;
+
     /** Regolazione dal vivo col thumbstick: soglia, velocità, granularità del feedback. */
     const STICK_DEADZONE = 0.2;
     const SCALE_RATE_PER_SEC = 0.4;
@@ -405,7 +416,8 @@
          */
 
         /**
-         * @returns {number} fattore di ingrandimento del mondo, 1 = nativo.
+         * @returns {number} fattore di ingrandimento del mondo. 1 = metrica nativa
+         * dei GLB; senza scelta salvata vale {@link DEFAULT_WORLD_SCALE}.
          *
          * Il valore vivo sta in memoria, non in localStorage: la regolazione col
          * thumbstick passa di qui a ogni frame, e rileggere/riscrivere lo storage
@@ -416,7 +428,7 @@
             if (this._worldScale === null) {
                 let n = NaN;
                 try { n = parseFloat(localStorage.getItem(WORLD_SCALE_KEY)); } catch (e) { /* storage negato */ }
-                this._worldScale = Number.isFinite(n) && n >= SCALE_MIN && n <= SCALE_MAX ? n : 1;
+                this._worldScale = Number.isFinite(n) && n >= SCALE_MIN && n <= SCALE_MAX ? n : DEFAULT_WORLD_SCALE;
             }
             return this._worldScale;
         },

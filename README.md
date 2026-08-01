@@ -111,9 +111,12 @@ romperebbe le posizioni e le animazioni scritte nei tutorial e cambierebbe anche
 la vista desktop. Scalando il rig si tocca solo l'osservatore — posa della testa
 e distanza interpupillare — e il mondo appare più grande in proporzione.
 
-`rig.scale = 1 / scalaMondo`. Con scala 1,3 gli occhi stanno a 1,75 / 1,3 = 1,35
-unità contro una macchina di 2,80: come stare davanti a una macchina reale di
-3,64 m.
+`rig.scale = 1 / scalaMondo`. Il **default è 1,25**, tarato sul Quest 3 con lo
+scenario Elettromandrino: gli occhi stanno a 1,75 / 1,25 = 1,40 unità contro una
+macchina di 2,80, come davanti a una macchina reale di 3,50 m.
+
+> Se 3,50 m è la quota reale della a500, la correzione andrebbe prima o poi fatta
+> a monte sui modelli invece di compensarla qui sull'osservatore.
 
 Si regola con lo slider accanto al pulsante VR, oppure **dal vivo dentro la
 sessione col thumbstick destro su/giù** — che è il modo pratico per trovare il
