@@ -79,7 +79,7 @@ const DROP_STYLE_PATTERNS = [/^css\/editor\.css/];
 
 const XR_STYLES = ['xr/xr.css'];
 // XRButton e XRInput prima di XRSession: quest'ultimo li usa a init e a sessione avviata.
-const XR_SCRIPTS = ['xr/XRButton.js', 'xr/XRInput.js', 'xr/XRSession.js'];
+const XR_SCRIPTS = ['xr/XRButton.js', 'xr/XRLocomotion.js', 'xr/XRInput.js', 'xr/XRSession.js'];
 
 function transformIndexHtml(html) {
     const report = { droppedScripts: [], droppedStyles: [], injected: [] };

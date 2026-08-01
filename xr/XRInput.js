@@ -1,20 +1,20 @@
 /**
- * XRInput.js — input dai controller del Meta Quest 3.
+ * XRInput.js — interazione per contatto (poke) col dito.
  *
- * MILESTONE 3. Cambia una sola cosa rispetto al desktop: **da dove nasce il ray**.
- * Sul desktop parte dal mouse attraverso la camera
- * (`raycaster.setFromCamera(mouse, camera)`, 15 punti in core); qui parte dal
- * controller. Da lì in poi il dispatch è identico e passa per la stessa API
- * basata su mesh già usata dal layer touch:
+ * MILESTONE 3, seconda versione. La prima usava un raggio laser e l'evento
+ * `select`: si premeva puntando. Su richiesta è stata sostituita dal **contatto
+ * fisico**: il polpastrello entra nel volume del pulsante e il pulsante scatta.
+ * Nessun pinch, nessun trigger — premere è un gesto, non un comando.
+ *
+ * Conseguenza: il raggio non serve più per interagire e resta solo alla
+ * locomozione (vedi XRLocomotion.js). I bersagli fuori dalla portata del braccio
+ * si raggiungono spostandosi, non puntando.
+ *
+ * Cosa NON cambia: il dispatch. Come per il layer touch e per il mouse, si passa
+ * sempre per la stessa API basata su mesh:
  *
  *   window.InteractiveObject3D.handleClick(mesh, opts)
  *   window.Scene3D.handleModelAction(rootModel)
- *   window.StepController.triggerStep('physical', triggerId)
- *
- * L'ordine di priorità replica quello di `core/js/scene3d-modular.js`
- * handleModelClick, compreso il ripiego sui pulsanti evidenziati: con un
- * puntatore laser i bersagli piccoli come `pulpito.Pulsante_mdi` restano
- * difficili, e quel ripiego è ciò che li rende raggiungibili.
  *
  * Non tocca `core/`.
  */
@@ -22,31 +22,40 @@
 (function () {
     'use strict';
 
-    /** Lunghezza del raggio quando non colpisce nulla, in unità scena. */
-    const RAY_DEFAULT_LENGTH = 5;
+    /**
+     * Raggio di contatto, in unità scena. Il dito è un punto, i pulsanti sono
+     * piccoli: senza tolleranza servirebbe una precisione irreale.
+     * L'uscita è più larga dell'ingresso — isteresi, altrimenti un dito che
+     * trema a filo del bordo fa scattare il pulsante decine di volte.
+     */
+    let POKE_ENTER = 0.022;
+    let POKE_EXIT = 0.040;
 
-    const COLOR_IDLE = 0x9fb4c7;   // grigio-azzurro: non c'è nulla da premere
-    const COLOR_HOT = 0xffd21e;    // giallo: bersaglio interattivo sotto il raggio
-    const COLOR_FIRED = 0xffffff;  // lampo bianco: comando andato a segno
+    /** Distanza entro cui un bersaglio è "vicino", per mostrare il cursore. */
+    const NEAR_RANGE = 0.35;
 
-    /** Durata del lampo di conferma, in ms. */
+    /** Ogni quanto ricostruire l'elenco dei bersagli, in ms. Gli step cambiano. */
+    const CANDIDATE_REFRESH_MS = 400;
+
+    const CURSOR_NEAR = 0xffd21e;   // giallo: stai per toccare
+    const CURSOR_HIT = 0xffffff;    // bianco: contatto avvenuto
     const FLASH_MS = 160;
 
     const XRInput = {
         enabled: false,
         xr: null,
-        controllers: [],
-        hovered: null,
-        lastHit: null,
+        sources: [],
+        candidates: [],
 
         _raycaster: null,
-        _tmpMatrix: null,
+        _lastRebuild: 0,
+        _tmpA: null,
+        _tmpB: null,
 
         // =====================================================================
         // Ciclo di vita
         // =====================================================================
 
-        /** @param {object} xrSession istanza di window.XRSession */
         init: function (xrSession) {
             if (this.enabled) return;
             const S = window.Scene3D;
@@ -55,261 +64,260 @@
 
             this.xr = xrSession;
             this._raycaster = new THREE.Raycaster();
-            this._tmpMatrix = new THREE.Matrix4();
+            this._tmpA = new THREE.Vector3();
+            this._tmpB = new THREE.Vector3();
 
-            for (let i = 0; i < 2; i++) this.controllers.push(this._buildController(i));
+            for (let i = 0; i < 2; i++) this.sources.push(this._buildSource(i));
+            this.candidates = [];
+            this._lastRebuild = 0;
+
+            if (window.XRLocomotion) window.XRLocomotion.init(xrSession, this);
 
             this.enabled = true;
-            console.log('[XRInput] Controller attivi. Trigger per interagire.');
+            console.log('[XRInput] Interazione a contatto attiva. Tocca i comandi col dito.');
         },
 
         dispose: function () {
-            const S = window.Scene3D;
-            this.controllers.forEach((c) => {
-                c.controller.removeEventListener('selectstart', c.onSelectStart);
-                c.controller.removeEventListener('connected', c.onConnected);
-                c.controller.removeEventListener('disconnected', c.onDisconnected);
-                if (c.controller.parent) c.controller.parent.remove(c.controller);
-                c.ray.geometry.dispose();
-                c.ray.material.dispose();
+            if (window.XRLocomotion) window.XRLocomotion.dispose();
+            this.sources.forEach((s) => {
+                if (s.controller.parent) s.controller.parent.remove(s.controller);
+                if (s.handObj && s.handObj.parent) s.handObj.parent.remove(s.handObj);
+                if (s.cursor.parent) s.cursor.parent.remove(s.cursor);
+                s.cursor.geometry.dispose();
+                s.cursor.material.dispose();
+                s.controller.removeEventListener('connected', s.onConnected);
+                s.controller.removeEventListener('disconnected', s.onDisconnected);
             });
-            this.controllers = [];
-            this.hovered = null;
+            this.sources = [];
+            this.candidates = [];
             this.enabled = false;
             if (window.InteractiveObject3D) window.InteractiveObject3D.handleHover(null);
         },
 
-        /**
-         * I controller vanno appesi al RIG, non alla scena: devono seguire
-         * l'operatore quando si sposta e subire la stessa scala del mondo, come
-         * la testa. Appesi alla scena resterebbero a terra e di misura sbagliata.
-         */
-        _buildController: function (index) {
+        _buildSource: function (index) {
             const S = window.Scene3D;
             const THREE = window.THREE;
             const rig = this.xr.rig;
 
             const controller = S.renderer.xr.getController(index);
+            // getHand va chiamato perché Three popoli i giunti: senza, `joints`
+            // resta vuoto e non esiste alcun polpastrello da seguire. Non aggiunge
+            // nulla di visibile — i modelli delle mani li disegna il visore.
+            const handObj = S.renderer.xr.getHand(index);
 
-            // Raggio: segmento unitario lungo -Z, allungato ogni frame fino al bersaglio.
-            const geom = new THREE.BufferGeometry().setFromPoints([
-                new THREE.Vector3(0, 0, 0),
-                new THREE.Vector3(0, 0, -1),
-            ]);
-            const ray = new THREE.Line(geom, new THREE.LineBasicMaterial({
-                color: COLOR_IDLE,
-                transparent: true,
-                opacity: 0.8,
-                depthTest: false,   // resta visibile anche dentro la geometria
-            }));
-            ray.renderOrder = 999;
-            ray.scale.z = RAY_DEFAULT_LENGTH;
-            controller.add(ray);
+            // Cursore di contatto: una sfera minuscola sulla punta del dito, visibile
+            // solo in prossimità di un bersaglio. Con le mani non c'è aptica, e senza
+            // un segnale visivo non si saprebbe quando si sta per toccare.
+            const cursor = new THREE.Mesh(
+                new THREE.SphereGeometry(0.008, 12, 8),
+                new THREE.MeshBasicMaterial({ color: CURSOR_NEAR, transparent: true, opacity: 0.9, depthTest: false })
+            );
+            cursor.renderOrder = 999;
+            cursor.visible = false;
+            rig.add(cursor);
 
-            // Nessuna geometria sullo spazio grip. Un proxy disegnato da noi si
-            // sovrappone alla mano tracciata e la nasconde: il visore le disegna
-            // già, e meglio. Vale anche per i controller, per cui non usiamo
-            // nemmeno XRControllerModelFactory — che oltretutto scaricherebbe i
-            // profili da un CDN esterno, mentre qui si vendorizza tutto in locale.
-            const entry = { index, controller, ray, hand: null, isHand: false, inputSource: null, flashUntil: 0 };
-
-            entry.onConnected = (e) => {
-                entry.inputSource = e.data;
-                entry.hand = e.data.handedness;
-                // Mani tracciate: stesso target ray, ma il pinch sostituisce il
-                // trigger, non esistono aptica né thumbstick, e non c'è gripSpace
-                // — quindi il corpo del controller resta giustamente invisibile.
-                entry.isHand = !!e.data.hand;
-                console.log(`[XRInput] ${entry.hand || '?'}: ${entry.isHand ? 'mano tracciata (pinch)' : 'controller (trigger)'}`);
+            const s = {
+                index, controller, handObj, cursor,
+                hand: null, isHand: false, inputSource: null,
+                tip: new THREE.Vector3(),
+                hasTip: false,
+                engaged: null,      // mesh attualmente "premuta", per l'isteresi
+                near: null,
+                flashUntil: 0,
             };
-            entry.onDisconnected = () => { entry.inputSource = null; entry.hand = null; entry.isHand = false; };
-            entry.onSelectStart = () => this._onSelect(entry);
 
-            controller.addEventListener('connected', entry.onConnected);
-            controller.addEventListener('disconnected', entry.onDisconnected);
-            controller.addEventListener('selectstart', entry.onSelectStart);
+            s.onConnected = (e) => {
+                s.inputSource = e.data;
+                s.hand = e.data.handedness;
+                s.isHand = !!e.data.hand;
+                console.log(`[XRInput] ${s.hand || '?'}: ${s.isHand ? 'mano tracciata' : 'controller'}`);
+            };
+            s.onDisconnected = () => { s.inputSource = null; s.hand = null; s.isHand = false; s.hasTip = false; };
+            controller.addEventListener('connected', s.onConnected);
+            controller.addEventListener('disconnected', s.onDisconnected);
 
             rig.add(controller);
-            return entry;
+            rig.add(handObj);
+            return s;
+        },
+
+        // =====================================================================
+        // Punta che preme
+        // =====================================================================
+
+        /**
+         * Posizione del punto che preme, in coordinate mondo.
+         *  - mano tracciata: polpastrello dell'indice;
+         *  - controller: origine del target ray, che sta sulla punta.
+         * Il ripiego non è teorico: i giunti compaiono solo se il visore concede
+         * `hand-tracking`, che è opzionale e può essere negato.
+         */
+        _updateTip: function (s) {
+            // Three marca `visible` sui giunti e sul target ray solo quando arriva
+            // una posa valida: è il modo giusto per sapere se il dato è utilizzabile.
+            const joints = s.handObj && s.handObj.joints;
+            const tipJoint = joints && joints['index-finger-tip'];
+
+            if (tipJoint && tipJoint.visible) {
+                s.tip.setFromMatrixPosition(tipJoint.matrixWorld);
+                s.hasTip = true;
+                s.tipIsFinger = true;
+                return true;
+            }
+            if (s.inputSource && s.controller.visible) {
+                s.tip.setFromMatrixPosition(s.controller.matrixWorld);
+                s.hasTip = true;
+                s.tipIsFinger = false;
+                return true;
+            }
+            s.hasTip = false;
+            return false;
+        },
+
+        // =====================================================================
+        // Bersagli
+        // =====================================================================
+
+        /**
+         * Elenco di ciò che si può premere, con il proprio bounding box in
+         * coordinate mondo. Ricostruito a intervalli e non a ogni frame:
+         * `Box3.setFromObject` non è gratis, e i bersagli cambiano solo al
+         * cambio di step o di evidenziazione.
+         */
+        _rebuildCandidates: function () {
+            const S = window.Scene3D;
+            const THREE = window.THREE;
+            const IO = window.InteractiveObject3D;
+            const list = [];
+            const seen = new Set();
+
+            const add = (mesh, kind) => {
+                if (!mesh || seen.has(mesh)) return;
+                seen.add(mesh);
+                list.push({ mesh, kind, box: new THREE.Box3().setFromObject(mesh) });
+            };
+
+            // I pulsanti evidenziati dallo step sono ciò che il tutorial chiede
+            // davvero: hanno la precedenza.
+            if (IO && IO.highlightedButtons) for (const [, mesh] of IO.highlightedButtons) add(mesh, 'evidenziato');
+
+            // Poi tutti i figli interattivi dei modelli caricati.
+            (S.loadedModels || []).forEach((m) => {
+                m.traverse((o) => { if (o.isMesh && o.userData && o.userData.interactive) add(o, 'interattivo'); });
+            });
+
+            this.candidates = list;
         },
 
         // =====================================================================
         // Frame
         // =====================================================================
 
-        /** Chiamato a ogni frame XR da XRSession. Aggiorna hover e lunghezza raggio. */
         update: function () {
             if (!this.enabled) return;
-
-            let best = null;
-            let bestCtrl = null;
-
             const now = performance.now();
-            for (const c of this.controllers) {
-                const hit = this._firstActionableHit(c);
-                this._stretchRay(c, hit ? hit.distance : null);
-                // Il lampo di conferma vince sul colore di hover finché dura.
-                c.ray.material.color.setHex(
-                    now < c.flashUntil ? COLOR_FIRED : (hit ? COLOR_HOT : COLOR_IDLE)
-                );
-                if (hit && (!best || hit.distance < best.distance)) { best = hit; bestCtrl = c; }
+
+            if (now - this._lastRebuild > CANDIDATE_REFRESH_MS) {
+                this._lastRebuild = now;
+                this._rebuildCandidates();
             }
 
-            const mesh = best ? best.object : null;
-            if (mesh !== this.hovered) {
-                this.hovered = mesh;
-                // Riusa il feedback visivo già esistente per l'hover del mouse.
-                if (window.InteractiveObject3D) window.InteractiveObject3D.handleHover(mesh);
-                if (mesh && bestCtrl) this._pulse(bestCtrl, 0.15, 12);
-            }
-            this.lastHit = best;
-        },
-
-        /**
-         * Il raggio è figlio del controller, quindi la sua scala è in unità locali:
-         * la distanza dell'intersezione è in unità mondo e va divisa per la scala
-         * del rig, altrimenti con scala mondo diversa da 1 il raggio si ferma corto.
-         */
-        _stretchRay: function (c, worldDistance) {
-            const rigScale = (this.xr.rig && this.xr.rig.scale.x) || 1;
-            const d = worldDistance === null ? RAY_DEFAULT_LENGTH : worldDistance;
-            c.ray.scale.z = Math.max(0.01, d / rigScale);
-        },
-
-        // =====================================================================
-        // Raycast
-        // =====================================================================
-
-        /** Costruisce il ray dalla posa del controller. Sostituisce setFromCamera. */
-        _aimFrom: function (c) {
-            this._tmpMatrix.identity().extractRotation(c.controller.matrixWorld);
-            this._raycaster.ray.origin.setFromMatrixPosition(c.controller.matrixWorld);
-            this._raycaster.ray.direction.set(0, 0, -1).applyMatrix4(this._tmpMatrix).normalize();
-            return this._raycaster;
-        },
-
-        /** @returns {?THREE.Intersection} primo bersaglio su cui il trigger farebbe qualcosa. */
-        _firstActionableHit: function (c) {
             const S = window.Scene3D;
-            if (!S || !S.loadedModels || !S.loadedModels.length) return null;
-            if (S.tutorialTracker && S.tutorialTracker.interactionsBlocked) return null;
+            const blocked = S.tutorialTracker && S.tutorialTracker.interactionsBlocked;
+            let hovered = null;
 
-            const ray = this._aimFrom(c);
-            const hits = ray.intersectObjects(S.loadedModels, true);
+            for (const s of this.sources) {
+                if (!this._updateTip(s) || blocked) { s.cursor.visible = false; s.engaged = null; continue; }
 
-            for (const h of hits) {
-                if (h.object.userData && h.object.userData.interactive) return h;
-            }
+                const { hit, near, dist } = this._probe(s.tip);
 
-            // Ripiego sui pulsanti evidenziati: bersagli piccoli o coperti da altra
-            // geometria. Stessa logica del desktop (scene3d-modular.js:1707).
-            const hl = window.InteractiveObject3D && window.InteractiveObject3D.highlightedButtons;
-            if (hl && hl.size) {
-                for (const [, mesh] of hl) {
-                    const direct = ray.intersectObject(mesh, true);
-                    if (direct.length) return direct[0];
+                // Isteresi: si esce solo oltre POKE_EXIT, così un dito che trema
+                // sul bordo non ripete il comando.
+                if (s.engaged) {
+                    const d = s.engaged.box.distanceToPoint(s.tip);
+                    if (d > POKE_EXIT) s.engaged = null;
+                } else if (hit) {
+                    s.engaged = hit;
+                    this._press(hit.mesh, s);
+                }
+
+                s.near = near ? near.mesh : null;
+                if (near) hovered = near.mesh;
+
+                // Il cursore compare solo vicino a un bersaglio: lontano, la mano
+                // deve restare la mano.
+                s.cursor.visible = !!near;
+                if (near) {
+                    s.cursor.position.copy(s.tip);
+                    this.xr.rig.worldToLocal(s.cursor.position);
+                    s.cursor.material.color.setHex(now < s.flashUntil ? CURSOR_HIT : CURSOR_NEAR);
+                    const t = Math.max(0, 1 - (dist - POKE_ENTER) / NEAR_RANGE);
+                    s.cursor.scale.setScalar(1 + t * 0.8);
                 }
             }
 
-            // Modello selezionabile: elemento dello step corrente.
-            if (hits.length) {
-                const root = S.findRootModel(hits[0].object);
-                if (root && S.isModelSelectable(root)) return hits[0];
+            if (window.InteractiveObject3D) window.InteractiveObject3D.handleHover(hovered);
+            if (window.XRLocomotion) window.XRLocomotion.update(this.sources);
+        },
+
+        /** @returns {{hit:?object, near:?object, dist:number}} bersaglio toccato e bersaglio vicino. */
+        _probe: function (tip) {
+            let hit = null;
+            let near = null;
+            let bestHit = Infinity;
+            let bestNear = Infinity;
+
+            for (const c of this.candidates) {
+                const d = c.box.distanceToPoint(tip);
+                if (d <= POKE_ENTER && d < bestHit) { bestHit = d; hit = c; }
+                if (d <= NEAR_RANGE && d < bestNear) { bestNear = d; near = c; }
             }
-            return null;
+            return { hit, near, dist: bestNear };
         },
 
         // =====================================================================
-        // Trigger
+        // Pressione
         // =====================================================================
 
         /**
-         * Replica l'ordine di priorità di handleModelClick del desktop:
-         * figlio interattivo, poi ripiego sui pulsanti evidenziati, poi azione
-         * sul modello radice.
+         * Stesso ordine di priorità del desktop (`handleModelClick`): figlio
+         * interattivo, poi azione sul modello radice.
          */
-        _onSelect: function (c) {
-            if (!this.enabled) return;
+        _press: function (mesh, s) {
             const S = window.Scene3D;
-            if (!S) return;
-
-            if (S.tutorialTracker && S.tutorialTracker.interactionsBlocked) {
-                console.log('[XRInput] Interazioni bloccate: tutorial completato.');
-                return;
-            }
-
-            const ray = this._aimFrom(c);
-            const hits = ray.intersectObjects(S.loadedModels, true);
             const IO = window.InteractiveObject3D;
 
-            // 1. figlio interattivo colpito direttamente
-            if (IO) {
-                for (const h of hits) {
-                    if (!h.object.userData || !h.object.userData.interactive) continue;
-                    if (IO.handleClick(h.object, { isXR: true, point: h.point })) {
-                        this._confirm(c);
-                        console.log(`[XRInput] ✅ ${h.object.name} gestito da InteractiveObject3D`);
-                        return;
-                    }
+            if (IO && mesh.userData && mesh.userData.interactive) {
+                if (IO.handleClick(mesh, { isXR: true, isPoke: true, point: s.tip.clone() })) {
+                    this._confirm(s);
+                    console.log(`[XRInput] 👆 ${mesh.name} premuto`);
+                    return;
                 }
-
-                // 2. ripiego sui pulsanti evidenziati (piccoli o occlusi)
-                const hl = IO.highlightedButtons;
-                if (hl && hl.size) {
-                    for (const [, mesh] of hl) {
-                        if (!ray.intersectObject(mesh, true).length) continue;
-
-                        if (IO.handleClick(mesh, { isXR: true })) {
-                            this._confirm(c);
-                            console.log(`[XRInput] ✅ ripiego evidenziato: ${mesh.name}`);
-                            return;
-                        }
-                        // Mesh evidenziata ma non registrata come InteractiveChild
-                        // (es. a500.porta): si passa dall'azione sul modello radice.
-                        const root = S.findRootModel(mesh);
-                        if (root && S.isModelSelectable(root) && this._modelAction(root, c)) return;
-                    }
+            }
+            if (IO && IO.highlightedButtons) {
+                for (const [, m] of IO.highlightedButtons) {
+                    if (m !== mesh) continue;
+                    if (IO.handleClick(mesh, { isXR: true, isPoke: true })) { this._confirm(s); return; }
+                    break;
                 }
             }
 
-            // 3. azione sul modello radice
-            if (hits.length) {
-                const root = S.findRootModel(hits[0].object);
-                if (root && S.isModelSelectable(root) && this._modelAction(root, c)) return;
+            const root = S.findRootModel(mesh);
+            if (root && S.isModelSelectable(root)) {
+                if (S.dragDropSystem && S.dragDropSystem.enabled) return;
+                S.handleModelAction(root);
+                this._confirm(s);
+                console.log(`[XRInput] 👆 azione su modello: ${root.name}`);
             }
-
-            console.log('[XRInput] Trigger a vuoto: nessun bersaglio.');
         },
 
-        _modelAction: function (root, c) {
-            const S = window.Scene3D;
-            // Come sul desktop: se il DragDropSystem è attivo gestisce lui.
-            if (S.dragDropSystem && S.dragDropSystem.enabled) return false;
-            S.handleModelAction(root);
-            this._confirm(c);
-            console.log(`[XRInput] ✅ azione su modello: ${root.name}`);
-            return true;
-        },
-
-        // =====================================================================
-        // Aptica
-        // =====================================================================
-
-        _pulse: function (c, intensity, ms) {
-            const gp = c.inputSource && c.inputSource.gamepad;
+        /** Vibrazione dove c'è, lampo del cursore sempre: le mani non hanno aptica. */
+        _confirm: function (s) {
+            const gp = s.inputSource && s.inputSource.gamepad;
             const act = gp && gp.hapticActuators && gp.hapticActuators[0];
-            if (act && act.pulse) { try { act.pulse(intensity, ms); } catch (e) { /* non supportato */ } }
-        },
-
-        /**
-         * Conferma di comando eseguito: vibrazione più lampo bianco del raggio.
-         * Il lampo non è ridondante — con le mani tracciate non esiste aptica, e
-         * senza di esso resterebbe zero conferma dell'azione andata a segno.
-         */
-        _confirm: function (c) {
-            this._pulse(c, 0.5, 30);
-            c.flashUntil = performance.now() + FLASH_MS;
-            c.ray.material.color.setHex(COLOR_FIRED);
+            if (act && act.pulse) { try { act.pulse(0.6, 35); } catch (e) { /* non supportato */ } }
+            s.flashUntil = performance.now() + FLASH_MS;
+            s.cursor.material.color.setHex(CURSOR_HIT);
         },
 
         // =====================================================================
@@ -319,17 +327,30 @@
         debugInfo: function () {
             const info = {
                 attivo: this.enabled,
-                sorgenti: this.controllers
-                    .map((c) => c.inputSource ? `${c.hand} = ${c.isHand ? 'mano (pinch)' : 'controller (trigger)'}` : `#${c.index} non connesso`)
+                sorgenti: this.sources
+                    .map((s) => s.inputSource
+                        ? `${s.hand}=${s.isHand ? 'mano' : 'controller'}${s.hasTip ? '' : ' (punta assente)'}`
+                        : `#${s.index} non connessa`)
                     .join('  |  ') || 'nessuna',
-                aptica: this.controllers.some((c) => c.inputSource && !c.isHand) ? 'disponibile' : 'no (mani tracciate)',
-                sottoIlRaggio: this.hovered ? this.hovered.name : 'niente',
-                distanza: this.lastHit ? +this.lastHit.distance.toFixed(2) : null,
-                pulsantiEvidenziati: window.InteractiveObject3D && window.InteractiveObject3D.highlightedButtons
-                    ? [...window.InteractiveObject3D.highlightedButtons.keys()] : [],
+                bersagli: this.candidates.length,
+                vicino: this.sources.map((s) => s.near ? s.near.name : '-').join(' | '),
+                premuto: this.sources.map((s) => s.engaged ? s.engaged.mesh.name : '-').join(' | '),
+                sogliaContatto: `${(POKE_ENTER * 100).toFixed(1)} cm (unità scena)`,
             };
             console.table(info);
             return info;
+        },
+
+        /**
+         * Regola a caldo la tolleranza di contatto, per tararla sul visore senza
+         * uscire dalla sessione. L'uscita resta il doppio dell'ingresso: è
+         * l'isteresi a impedire che un dito fermo sul bordo ripeta il comando.
+         */
+        setPokeRadius: function (meters) {
+            POKE_ENTER = Math.max(0.005, Math.min(0.10, Number(meters) || POKE_ENTER));
+            POKE_EXIT = POKE_ENTER * 1.8;
+            console.log(`[XRInput] Soglia contatto: ${(POKE_ENTER * 100).toFixed(1)} cm (uscita ${(POKE_EXIT * 100).toFixed(1)} cm)`);
+            return POKE_ENTER;
         },
     };
 

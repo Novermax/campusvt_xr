@@ -48,7 +48,8 @@ campusvt_xr/
 ├── core/                      submodule → Novermax/campusvt (READ-ONLY, shallow)
 ├── xr/                        layer WebXR — l'unico codice applicativo di questo repo
 │   ├── XRSession.js           sonda capability, sessione immersiva, XRRig, loop
-│   ├── XRInput.js             ray dai controller, hover, trigger, aptica
+│   ├── XRInput.js             pressione a contatto col dito
+│   ├── XRLocomotion.js        teleport e rotazione a scatti
 │   ├── XRButton.js            pulsante entra/esci VR, scala, altezza
 │   └── xr.css
 ├── libs-xr/                   (Milestone 2) KTX2Loader, MeshoptDecoder
@@ -100,25 +101,48 @@ identica.
 
 Stato in qualunque momento: `XRSession.debugInfo()` dalla console.
 
-#### Controller o mani
+#### Premere: contatto col dito
 
-Funzionano entrambi: sul Quest le mani tracciate sono input source a pieno
-titolo, con lo stesso target ray, e il **pinch** genera lo stesso evento `select`
-del trigger. Il layer usa `getController(index)`, cioè lo spazio del target ray,
-che vale in tutti e due i casi.
+**I comandi si premono toccandoli**, non puntandoli. Il polpastrello dell'indice
+entra nel volume del pulsante e il pulsante scatta: nessun pinch, nessun trigger
+— premere è un gesto, non un comando. Con i controller, al posto del dito vale
+la punta del controller.
 
-| Input | Controller | Mani |
+Il raggio **non preme nulla**: serve solo a mirare il pavimento per il teleport.
+
+Una sfera minuscola appare sulla punta del dito quando c'è un bersaglio
+raggiungibile, e cresce avvicinandosi; lampeggia bianca al contatto. Lontano da
+qualsiasi comando resta invisibile: la mano deve restare la mano. Il lampo non è
+ridondante rispetto alla vibrazione — con le mani l'aptica non esiste.
+
+Tolleranza di contatto 2,2 cm, con uscita a 4 cm: senza isteresi un dito che
+trema a filo del bordo farebbe scattare il pulsante decine di volte al secondo.
+Tarabile a caldo con `XRInput.setPokeRadius(0.03)`.
+
+`XRInput.debugInfo()` riporta, per ciascuna sorgente, se è una mano o un
+controller, cosa ha vicino e cosa sta premendo.
+
+#### Spostarsi: teleport
+
+Serve perché l'interazione è a contatto: se non si punta più da lontano, bisogna
+potersi avvicinare. Misurato sul tutorial Elettromandrino, **6 elementi su 21**
+stanno a ~1,20 m dalla spalla, fuori dalla portata del braccio.
+
+| Comando | Controller | Mani |
 |---|---|---|
-| Interagire | trigger | pinch (pollice + indice) |
-| Scala del mondo | thumbstick destro su/giù | — usa lo slider 2D |
-| Conferma tattile | vibrazione | — non disponibile |
+| Teleport | mira a terra, poi trigger | mira a terra, poi pinch |
+| Rotazione a scatti (30°) | thumbstick destro, orizzontale | — girati fisicamente |
+| Scala del mondo | thumbstick destro, verticale | slider 2D |
 
-Il raggio è **grigio** quando non c'è nulla da premere, **giallo** sopra un
-bersaglio interattivo, e **lampeggia bianco** sul comando andato a segno. Il
-lampo non è ridondante rispetto alla vibrazione: con le mani l'aptica non esiste,
-e senza di esso non resterebbe alcuna conferma dell'azione.
+Il raggio diventa **verde** e appare un anello quando la destinazione è valida.
+Una mano vicina a un comando smette di mirare, così non ci si teleporta mentre
+si preme. Il teleport cambia solo X e Z: la Y porta la calibrazione dell'altezza
+occhi e resta intatta.
 
-`XRInput.debugInfo()` riporta, per ciascuna sorgente, se è una mano o un controller.
+Il bersaglio è il **piano y=0**, non la geometria: `pavimento.glb` è una cupola
+da 519 × 220 × 220 m, e intersecarla darebbe punti ovunque tranne che a terra.
+
+Stato: `XRLocomotion.debugInfo()`.
 
 L'ordine di priorità replica quello del desktop (`handleModelClick`): figlio
 interattivo, poi ripiego sui pulsanti evidenziati, poi azione sul modello radice.
@@ -241,7 +265,9 @@ scenario, o al primo calo di frame rate misurato.
 |---|---|---|
 | 0 | Setup: repo, submodule, build, deploy Pages | ✅ fatto |
 | 1 | Sessione XR: `renderer.xr`, `setAnimationLoop`, XRRig | ✅ fatto |
-| 3 | Input: ray dai controller, hover, trigger | ✅ fatto |
+| 3 | Input: pressione a contatto col dito | ✅ fatto |
+| 7 | Locomozione: teleport, rotazione a scatti | ✅ fatto (anticipata: il poke la richiede) |
+| 4 | UI in-world — in `immersive-vr` il DOM è invisibile | ⏳ prossima |
 | 2 | Pipeline asset | ⏸️ **rimandata** — vedi sotto |
 | 4 | UI in-world (il DOM è invisibile in `immersive-vr`) | ⏳ |
 | 5 | Utensili agganciati al controller + particelle | ⏳ |
