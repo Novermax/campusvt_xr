@@ -110,10 +110,18 @@ la punta del controller.
 
 Il raggio **non preme nulla**: serve solo a mirare il pavimento per il teleport.
 
-Una sfera minuscola appare sulla punta del dito quando c'è un bersaglio
-raggiungibile, e cresce avvicinandosi; lampeggia bianca al contatto. Lontano da
-qualsiasi comando resta invisibile: la mano deve restare la mano. Il lampo non è
-ridondante rispetto alla vibrazione — con le mani l'aptica non esiste.
+**Le mani le disegna l'applicazione**, non il visore: in `immersive-vr` il
+compositore non mostra nulla, il rendering è tutto a carico della pagina. Sono
+25 sferette sui giunti, in una `InstancedMesh` — **una sola draw call per mano**
+e nessun asset esterno, mentre `XRHandModelFactory` con profilo `mesh`
+scaricherebbe i modelli da un CDN. Le sferette stanno dentro il rig, quindi la
+mano scala col mondo esattamente come la testa.
+
+Una sfera più piccola appare sulla punta del dito quando c'è un bersaglio
+a portata, e cresce avvicinandosi; lampeggia bianca al contatto. Compare solo
+entro 12 cm: più larga, con i molti comandi ravvicinati del pulpito, resterebbe
+accesa di continuo. Il lampo non è ridondante rispetto alla vibrazione — con le
+mani l'aptica non esiste.
 
 Tolleranza di contatto 2,2 cm, con uscita a 4 cm: senza isteresi un dito che
 trema a filo del bordo farebbe scattare il pulsante decine di volte al secondo.

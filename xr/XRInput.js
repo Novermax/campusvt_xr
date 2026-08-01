@@ -31,8 +31,15 @@
     let POKE_ENTER = 0.022;
     let POKE_EXIT = 0.040;
 
-    /** Distanza entro cui un bersaglio è "vicino", per mostrare il cursore. */
-    const NEAR_RANGE = 0.35;
+    /**
+     * Distanza entro cui un bersaglio è "vicino" e il cursore compare.
+     * Tenuta stretta: a 35 cm il cursore restava acceso di continuo, perché il
+     * pulpito ha molti figli interattivi ravvicinati.
+     */
+    const NEAR_RANGE = 0.12;
+
+    /** Giunti di una XRHand. Serve solo a dimensionare la mesh istanziata. */
+    const HAND_JOINT_COUNT = 25;
 
     /** Ogni quanto ricostruire l'elenco dei bersagli, in ms. Gli step cambiano. */
     const CANDIDATE_REFRESH_MS = 400;
@@ -85,6 +92,10 @@
                 if (s.cursor.parent) s.cursor.parent.remove(s.cursor);
                 s.cursor.geometry.dispose();
                 s.cursor.material.dispose();
+                if (s.handMesh.parent) s.handMesh.parent.remove(s.handMesh);
+                s.handMesh.geometry.dispose();
+                s.handMesh.material.dispose();
+                s.handMesh.dispose();
                 s.controller.removeEventListener('connected', s.onConnected);
                 s.controller.removeEventListener('disconnected', s.onDisconnected);
             });
@@ -109,15 +120,29 @@
             // solo in prossimità di un bersaglio. Con le mani non c'è aptica, e senza
             // un segnale visivo non si saprebbe quando si sta per toccare.
             const cursor = new THREE.Mesh(
-                new THREE.SphereGeometry(0.008, 12, 8),
+                new THREE.SphereGeometry(0.006, 12, 8),
                 new THREE.MeshBasicMaterial({ color: CURSOR_NEAR, transparent: true, opacity: 0.9, depthTest: false })
             );
             cursor.renderOrder = 999;
             cursor.visible = false;
             rig.add(cursor);
 
+            // Mano visibile: in immersive-vr il visore NON disegna nulla, deve
+            // farlo l'applicazione. Una InstancedMesh di sferette sui 25 giunti
+            // costa una sola draw call per mano ed è procedurale — niente asset
+            // da CDN, come XRHandModelFactory con profilo 'mesh' richiederebbe.
+            const handMesh = new THREE.InstancedMesh(
+                new THREE.SphereGeometry(1, 8, 6),
+                new THREE.MeshStandardMaterial({ color: 0xdfe6ee, roughness: 0.75, metalness: 0.0 }),
+                HAND_JOINT_COUNT
+            );
+            handMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            handMesh.frustumCulled = false;
+            handMesh.count = 0;              // nessun giunto ancora tracciato
+            rig.add(handMesh);
+
             const s = {
-                index, controller, handObj, cursor,
+                index, controller, handObj, cursor, handMesh,
                 hand: null, isHand: false, inputSource: null,
                 tip: new THREE.Vector3(),
                 hasTip: false,
@@ -139,6 +164,44 @@
             rig.add(controller);
             rig.add(handObj);
             return s;
+        },
+
+        // =====================================================================
+        // Mano visibile
+        // =====================================================================
+
+        /**
+         * Ridisegna i giunti della mano. I giunti sono figli del rig, quindi
+         * subiscono la stessa scala del mondo della testa: la mano resta
+         * proporzionata a ciò che guarda.
+         *
+         * `jointRadius` arriva dalla posa ed è in metri fisici; la geometria ha
+         * raggio 1, quindi la scala dell'istanza è direttamente il raggio.
+         */
+        _updateHandVisual: function (s) {
+            const THREE = window.THREE;
+            const joints = s.handObj && s.handObj.joints;
+            if (!joints) { s.handMesh.count = 0; return; }
+
+            this._mat = this._mat || new THREE.Matrix4();
+            this._rigInv = this._rigInv || new THREE.Matrix4();
+            this._rigInv.copy(this.xr.rig.matrixWorld).invert();
+
+            let n = 0;
+            for (const name in joints) {
+                if (n >= HAND_JOINT_COUNT) break;
+                const j = joints[name];
+                if (!j || !j.visible) continue;
+
+                const r = j.jointRadius || 0.008;
+                this._mat.copy(j.matrixWorld);
+                this._mat.premultiply(this._rigInv);          // in coordinate del rig
+                this._mat.scale(this._tmpB.set(r, r, r));
+                s.handMesh.setMatrixAt(n++, this._mat);
+            }
+
+            s.handMesh.count = n;
+            if (n) s.handMesh.instanceMatrix.needsUpdate = true;
         },
 
         // =====================================================================
@@ -227,6 +290,7 @@
             let hovered = null;
 
             for (const s of this.sources) {
+                this._updateHandVisual(s);
                 if (!this._updateTip(s) || blocked) { s.cursor.visible = false; s.engaged = null; continue; }
 
                 const { hit, near, dist } = this._probe(s.tip);
