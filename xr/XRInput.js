@@ -32,6 +32,25 @@
     let POKE_EXIT = 0.040;
 
     /**
+     * Afferrare è un gesto molto più grossolano che premere: la soglia per gli
+     * oggetti impugnabili è perciò larga. Con 2,2 cm e il solo polpastrello
+     * prendere il telecomando risultava difficile, come segnalato dal visore.
+     */
+    let GRAB_ENTER = 0.075;
+
+    /**
+     * Punti della mano che contano come contatto. Per premere basta l'indice,
+     * ma per afferrare deve valere qualunque parte della mano: si prende un
+     * oggetto col palmo e col pollice, non puntandolo col dito.
+     */
+    const TIP_JOINTS = [
+        'index-finger-tip',
+        'thumb-tip',
+        'middle-finger-tip',
+        'middle-finger-metacarpal',   // centro del palmo
+    ];
+
+    /**
      * Distanza entro cui un bersaglio è "vicino" e il cursore compare.
      * Tenuta stretta: a 35 cm il cursore restava acceso di continuo, perché il
      * pulpito ha molti figli interattivi ravvicinati.
@@ -56,6 +75,11 @@
     const CURSOR_HIT = 0xffffff;    // bianco: contatto avvenuto
     const FLASH_MS = 160;
 
+    /** Colore degli anelli e del lampo di pressione. */
+    const HL_COLOR = 0xffd21e;
+    /** Durata del lampo emissivo sull'oggetto premuto. */
+    const PRESS_FLASH_MS = 220;
+
     const XRInput = {
         enabled: false,
         xr: null,
@@ -63,6 +87,7 @@
         candidates: [],
 
         _raycaster: null,
+        _rings: [],
         _lastRebuild: 0,
         _tmpA: null,
         _tmpB: null,
@@ -119,6 +144,7 @@
                 s.controller.removeEventListener('connected', s.onConnected);
                 s.controller.removeEventListener('disconnected', s.onDisconnected);
             });
+            this._clearHighlights();
             this.sources = [];
             this.candidates = [];
             this.enabled = false;
@@ -165,6 +191,8 @@
                 index, controller, handObj, cursor, handMesh,
                 hand: null, isHand: false, inputSource: null,
                 tip: new THREE.Vector3(),
+                tips: [],
+                _tipVecs: [],
                 hasTip: false,
                 engaged: null,      // mesh attualmente "premuta", per l'isteresi
                 near: null,
@@ -304,17 +332,31 @@
         _updateTip: function (s) {
             // Three marca `visible` sui giunti e sul target ray solo quando arriva
             // una posa valida: è il modo giusto per sapere se il dato è utilizzabile.
+            const THREE = window.THREE;
             const joints = s.handObj && s.handObj.joints;
-            const tipJoint = joints && joints['index-finger-tip'];
+            s.tips.length = 0;
 
-            if (tipJoint && tipJoint.visible) {
-                s.tip.setFromMatrixPosition(tipJoint.matrixWorld);
+            if (joints) {
+                TIP_JOINTS.forEach((name, i) => {
+                    const j = joints[name];
+                    if (!j || !j.visible) return;
+                    if (!s._tipVecs[i]) s._tipVecs[i] = new THREE.Vector3();
+                    s._tipVecs[i].setFromMatrixPosition(j.matrixWorld);
+                    s.tips.push(s._tipVecs[i]);
+                });
+            }
+
+            if (s.tips.length) {
+                // Il primo è l'indice quando c'è: è quello che preme, e su cui
+                // va disegnato il cursore.
+                s.tip.copy(s.tips[0]);
                 s.hasTip = true;
                 s.tipIsFinger = true;
                 return true;
             }
             if (s.inputSource && s.controller.visible) {
                 s.tip.setFromMatrixPosition(s.controller.matrixWorld);
+                s.tips.push(s.tip);
                 s.hasTip = true;
                 s.tipIsFinger = false;
                 return true;
@@ -350,12 +392,31 @@
             // davvero: hanno la precedenza.
             if (IO && IO.highlightedButtons) for (const [, mesh] of IO.highlightedButtons) add(mesh, 'evidenziato');
 
+            // Gli oggetti impugnabili sono bersagli a sé: hanno soglia larga e non
+            // dipendono dall'essere figli interattivi. Senza questo, prendere il
+            // telecomando dipendeva dal caso.
+            const HS = window.HoldableSystem;
+            if (HS && HS.holdableConfigs) {
+                for (const name of HS.holdableConfigs.keys()) {
+                    const model = (S.loadedModels || []).find((m) => {
+                        const f = (m.userData && m.userData.originalFilename) || m.name || '';
+                        return f.split('/').pop().replace(/\.(glb|gltf|obj|stl)$/i, '') === name;
+                    });
+                    if (model && !HS.isHeld?.(name)) add(model, 'impugnabile');
+                }
+            }
+
             // Poi tutti i figli interattivi dei modelli caricati.
             (S.loadedModels || []).forEach((m) => {
                 m.traverse((o) => { if (o.isMesh && o.userData && o.userData.interactive) add(o, 'interattivo'); });
             });
 
             this.candidates = list;
+        },
+
+        /** Soglia di contatto: afferrare è più grossolano che premere. */
+        _radiusFor: function (c) {
+            return c.kind === 'impugnabile' ? GRAB_ENTER : POKE_ENTER;
         },
 
         // =====================================================================
@@ -379,15 +440,20 @@
                 this._updateHandVisual(s);
                 if (!this._updateTip(s) || blocked) { s.cursor.visible = false; s.engaged = null; continue; }
 
-                const { hit, near, dist } = this._probe(s.tip);
+                const { hit, near, dist } = this._probe(s.tips);
 
-                // Isteresi: si esce solo oltre POKE_EXIT, così un dito che trema
-                // sul bordo non ripete il comando.
+                // Isteresi: si esce solo oltre la soglia allargata, così un dito
+                // che trema sul bordo non ripete il comando.
                 if (s.engaged) {
-                    const d = s.engaged.box.distanceToPoint(s.tip);
-                    if (d > POKE_EXIT) s.engaged = null;
+                    let d = Infinity;
+                    for (const t of s.tips) d = Math.min(d, s.engaged.box.distanceToPoint(t));
+                    const exit = s.engaged.kind === 'impugnabile' ? GRAB_ENTER * 1.8 : POKE_EXIT;
+                    if (d > exit) s.engaged = null;
                 } else if (hit) {
                     s.engaged = hit;
+                    // L'oggetto va nella mano che l'ha toccato, non sempre nella
+                    // stessa: e' quella che l'utente ha usato.
+                    if (hit.kind === 'impugnabile' && window.XRHold) window.XRHold.preferSource(s);
                     this._press(hit.mesh, s);
                 }
 
@@ -406,23 +472,129 @@
                 }
             }
 
+            this._updateHighlights(now);
+
             if (window.InteractiveObject3D) window.InteractiveObject3D.handleHover(hovered);
             if (window.XRLocomotion) window.XRLocomotion.update(this.sources);
         },
 
-        /** @returns {{hit:?object, near:?object, dist:number}} bersaglio toccato e bersaglio vicino. */
-        _probe: function (tip) {
+        /**
+         * @param {THREE.Vector3[]} tips punti della mano che contano come contatto.
+         * @returns {{hit:?object, near:?object, dist:number}} bersaglio toccato e bersaglio vicino.
+         */
+        _probe: function (tips) {
             let hit = null;
             let near = null;
             let bestHit = Infinity;
             let bestNear = Infinity;
 
             for (const c of this.candidates) {
-                const d = c.box.distanceToPoint(tip);
-                if (d <= POKE_ENTER && d < bestHit) { bestHit = d; hit = c; }
-                if (d <= NEAR_RANGE && d < bestNear) { bestNear = d; near = c; }
+                const radius = this._radiusFor(c);
+                // Basta che UNO dei punti tocchi: un oggetto lo si prende col
+                // palmo o col pollice, non solo con la punta dell'indice.
+                let d = Infinity;
+                for (const t of tips) d = Math.min(d, c.box.distanceToPoint(t));
+
+                if (d <= radius && d < bestHit) { bestHit = d; hit = c; }
+                if (d <= Math.max(NEAR_RANGE, radius) && d < bestNear) { bestNear = d; near = c; }
             }
             return { hit, near, dist: bestNear };
+        },
+
+        // =====================================================================
+        // Segnalazione dei bersagli
+        // =====================================================================
+
+        /*
+         * Sul desktop il bersaglio dello step è indicato da un cerchio giallo
+         * disegnato da `HighlightCircleManager` — che è DOM, posizionato in pixel,
+         * quindi in `immersive-vr` semplicemente non esiste. Senza sostituto non
+         * si capisce cosa toccare.
+         *
+         * Qui l'equivalente è un anello 3D attorno al bersaglio, orientato verso
+         * chi guarda e pulsante. Vale per i pulsanti richiesti dallo step e per
+         * gli oggetti impugnabili.
+         */
+
+        /** Anelli attorno ai bersagli che lo step sta chiedendo. */
+        _updateHighlights: function (now) {
+            const THREE = window.THREE;
+            const S = window.Scene3D;
+            const wanted = this.candidates.filter((c) => c.kind === 'evidenziato' || c.kind === 'impugnabile');
+
+            while (this._rings.length < wanted.length) {
+                const ring = new THREE.Mesh(
+                    new THREE.RingGeometry(0.80, 1.0, 40),
+                    new THREE.MeshBasicMaterial({
+                        color: HL_COLOR, transparent: true, opacity: 0.85,
+                        side: THREE.DoubleSide, depthTest: false,
+                    })
+                );
+                ring.renderOrder = 997;
+                S.scene.add(ring);
+                this._rings.push(ring);
+            }
+
+            const camPos = S.camera.getWorldPosition(this._tmpA);
+            // Pulsazione lenta: attira lo sguardo senza diventare fastidiosa.
+            const pulse = 0.72 + 0.28 * Math.sin(now / 320);
+
+            this._rings.forEach((ring, i) => {
+                const c = wanted[i];
+                if (!c) { ring.visible = false; return; }
+
+                const box = c.box;
+                box.getCenter(ring.position);
+                const size = box.getSize(this._tmpB);
+                // Raggio legato all'ingombro, con un minimo: certi pulsanti sono
+                // minuscoli e un anello alla loro misura non si noterebbe.
+                const r = Math.max(0.035, Math.max(size.x, size.y, size.z) * 0.8);
+
+                // Scala ferma, opacità pulsante: un anello che cambia dimensione
+                // sembra allontanarsi e rende difficile mirare il bersaglio.
+                ring.scale.setScalar(r);
+                ring.lookAt(camPos);
+                ring.material.opacity = 0.35 + 0.5 * pulse;
+                ring.visible = true;
+            });
+        },
+
+        _clearHighlights: function () {
+            const S = window.Scene3D;
+            this._rings.forEach((r) => {
+                if (r.parent) r.parent.remove(r);
+                r.geometry.dispose();
+                r.material.dispose();
+            });
+            this._rings = [];
+        },
+
+        /**
+         * Lampo emissivo sull'oggetto premuto. È il feedback che sul desktop dà
+         * il cursore e che qui manca del tutto: senza, non si distingue una
+         * pressione riuscita da un tocco a vuoto.
+         */
+        _flashMesh: function (mesh) {
+            const targets = [];
+            mesh.traverse((o) => { if (o.isMesh && o.material) targets.push(o); });
+            if (!targets.length && mesh.material) targets.push(mesh);
+
+            targets.forEach((o) => {
+                const mats = Array.isArray(o.material) ? o.material : [o.material];
+                mats.forEach((m) => {
+                    if (!m.emissive || m.userData._xrFlashing) return;
+                    m.userData._xrFlashing = true;
+                    const prevColor = m.emissive.getHex();
+                    const prevInt = m.emissiveIntensity !== undefined ? m.emissiveIntensity : 1;
+                    m.emissive.setHex(HL_COLOR);
+                    m.emissiveIntensity = 1.6;
+                    setTimeout(() => {
+                        m.emissive.setHex(prevColor);
+                        m.emissiveIntensity = prevInt;
+                        m.userData._xrFlashing = false;
+                    }, PRESS_FLASH_MS);
+                });
+            });
         },
 
         // =====================================================================
@@ -439,6 +611,7 @@
 
             if (IO && mesh.userData && mesh.userData.interactive) {
                 if (IO.handleClick(mesh, { isXR: true, isPoke: true, point: s.tip.clone() })) {
+                    this._flashMesh(mesh);
                     this._confirm(s);
                     console.log(`[XRInput] 👆 ${mesh.name} premuto`);
                     return;
@@ -447,7 +620,7 @@
             if (IO && IO.highlightedButtons) {
                 for (const [, m] of IO.highlightedButtons) {
                     if (m !== mesh) continue;
-                    if (IO.handleClick(mesh, { isXR: true, isPoke: true })) { this._confirm(s); return; }
+                    if (IO.handleClick(mesh, { isXR: true, isPoke: true })) { this._flashMesh(mesh); this._confirm(s); return; }
                     break;
                 }
             }
@@ -456,6 +629,7 @@
             if (root && S.isModelSelectable(root)) {
                 if (S.dragDropSystem && S.dragDropSystem.enabled) return;
                 S.handleModelAction(root);
+                this._flashMesh(mesh);
                 this._confirm(s);
                 console.log(`[XRInput] 👆 azione su modello: ${root.name}`);
             }
@@ -501,6 +675,13 @@
             POKE_EXIT = POKE_ENTER * 1.8;
             console.log(`[XRInput] Soglia contatto: ${(POKE_ENTER * 100).toFixed(1)} cm (uscita ${(POKE_EXIT * 100).toFixed(1)} cm)`);
             return POKE_ENTER;
+        },
+
+        /** Soglia per afferrare, separata perché il gesto è più grossolano. */
+        setGrabRadius: function (meters) {
+            GRAB_ENTER = Math.max(0.02, Math.min(0.25, Number(meters) || GRAB_ENTER));
+            console.log(`[XRInput] Soglia presa: ${(GRAB_ENTER * 100).toFixed(1)} cm`);
+            return GRAB_ENTER;
         },
     };
 

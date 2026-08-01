@@ -135,8 +135,18 @@
         // =====================================================================
 
         /** Sorgente da usare per l'impugnatura: la preferita se c'è, altrimenti l'altra. */
+        /**
+         * Indica quale mano ha toccato l'oggetto: e' li' che deve finire.
+         * Mandarlo sempre alla sinistra sarebbe scorretto se l'utente lo prende
+         * con la destra.
+         */
+        preferSource: function (s) {
+            if (s && s.inputSource) this._preferred = s;
+        },
+
         _pickSource: function () {
             const src = this.input ? this.input.sources : [];
+            if (this._preferred && this._preferred.inputSource) return this._preferred;
             const found = src.find((s) => s.inputSource && s.hand === PREFERRED_HAND)
                 || src.find((s) => s.inputSource);
             if (found) { this._lastSource = found; return found; }
