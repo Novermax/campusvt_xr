@@ -52,7 +52,7 @@ campusvt_xr/
 │   ├── XRLocomotion.js        teleport e rotazione a scatti
 │   ├── XRButton.js            pulsante entra/esci VR, scala, altezza
 │   └── xr.css
-├── libs-xr/                   (Milestone 2) KTX2Loader, MeshoptDecoder
+├── libs-xr/hands/             modelli di mano W3C, vendorizzati (vedi NOTICE.md)
 ├── assets-xr/pipeline/        (Milestone 2) gltf-transform → models-xr/
 ├── scripts/build.mjs          appiattisce core/ + overlay xr/ → _site/
 ├── .github/workflows/pages.yml
@@ -111,11 +111,21 @@ la punta del controller.
 Il raggio **non preme nulla**: serve solo a mirare il pavimento per il teleport.
 
 **Le mani le disegna l'applicazione**, non il visore: in `immersive-vr` il
-compositore non mostra nulla, il rendering è tutto a carico della pagina. Sono
-25 sferette sui giunti, in una `InstancedMesh` — **una sola draw call per mano**
-e nessun asset esterno, mentre `XRHandModelFactory` con profilo `mesh`
-scaricherebbe i modelli da un CDN. Le sferette stanno dentro il rig, quindi la
-mano scala col mondo esattamente come la testa.
+compositore non mostra nulla, il rendering è tutto a carico della pagina.
+
+Sono mesh skinnate vere, dal profilo `generic-hand` di WebXR Input Profiles,
+**vendorizzate in `libs-xr/hands/`** invece di essere scaricate da un CDN come
+farebbe `XRHandModelFactory` — vedi `libs-xr/hands/NOTICE.md` per fonte e
+licenza. Le 25 ossa portano esattamente i nomi dei giunti WebXR e sono tutte
+figlie dirette di `Armature`, che è a identità: la posa di ogni giunto si copia
+sull'osso omonimo, senza composizioni.
+
+Se il modello non è ancora arrivato, o se il caricamento fallisce, restano delle
+sferette sui giunti in una `InstancedMesh` — una sola draw call, tutto
+procedurale. Meglio una mano approssimativa che nessuna mano.
+
+In entrambi i casi la mano vive dentro il rig, quindi scala col mondo
+esattamente come la testa.
 
 Una sfera più piccola appare sulla punta del dito quando c'è un bersaglio
 a portata, e cresce avvicinandosi; lampeggia bianca al contatto. Compare solo

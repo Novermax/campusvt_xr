@@ -38,8 +38,16 @@
      */
     const NEAR_RANGE = 0.12;
 
-    /** Giunti di una XRHand. Serve solo a dimensionare la mesh istanziata. */
+    /** Giunti di una XRHand. Serve a dimensionare la mesh istanziata di ripiego. */
     const HAND_JOINT_COUNT = 25;
+
+    /**
+     * Modelli di mano, vendorizzati in locale da immersive-web/webxr-input-profiles
+     * (licenza W3C Software and Document — vedi libs-xr/hands/NOTICE.md). Sono gli
+     * stessi asset che `XRHandModelFactory` di Three scaricherebbe da un CDN.
+     * Serviti dalla nostra origin: nessuna dipendenza esterna a runtime.
+     */
+    const HAND_MODEL_PATH = 'libs-xr/hands/';
 
     /** Ogni quanto ricostruire l'elenco dei bersagli, in ms. Gli step cambiano. */
     const CANDIDATE_REFRESH_MS = 400;
@@ -96,6 +104,14 @@
                 s.handMesh.geometry.dispose();
                 s.handMesh.material.dispose();
                 s.handMesh.dispose();
+                if (s.handModel) {
+                    if (s.handModel.root.parent) s.handModel.root.parent.remove(s.handModel.root);
+                    s.handModel.root.traverse((o) => {
+                        if (o.geometry) o.geometry.dispose();
+                        if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m.dispose());
+                    });
+                    s.handModel = null;
+                }
                 s.controller.removeEventListener('connected', s.onConnected);
                 s.controller.removeEventListener('disconnected', s.onDisconnected);
             });
@@ -156,6 +172,9 @@
                 s.hand = e.data.handedness;
                 s.isHand = !!e.data.hand;
                 console.log(`[XRInput] ${s.hand || '?'}: ${s.isHand ? 'mano tracciata' : 'controller'}`);
+                // La lateralità si conosce solo ora: prima non si saprebbe quale
+                // dei due modelli caricare.
+                this._loadHandModel(s);
             };
             s.onDisconnected = () => { s.inputSource = null; s.hand = null; s.isHand = false; s.hasTip = false; };
             controller.addEventListener('connected', s.onConnected);
@@ -171,14 +190,77 @@
         // =====================================================================
 
         /**
-         * Ridisegna i giunti della mano. I giunti sono figli del rig, quindi
-         * subiscono la stessa scala del mondo della testa: la mano resta
-         * proporzionata a ciò che guarda.
+         * Carica la mesh skinnata della mano. Le ossa del modello portano
+         * esattamente i nomi dei giunti WebXR e sono tutte figlie dirette
+         * dell'Armature, che è a identità: la posa di ogni giunto si copia
+         * sull'osso corrispondente senza composizioni.
          *
+         * Finché non è caricata — o se il caricamento fallisce — restano le
+         * sferette: meglio una mano approssimativa che nessuna mano.
+         */
+        _loadHandModel: function (s) {
+            if (s.handModel || s.handModelPending || !s.hand || !s.isHand) return;
+            const GLTFLoader = window.GLTFLoader;
+            if (!GLTFLoader) return;
+
+            s.handModelPending = true;
+            new GLTFLoader().load(
+                `${HAND_MODEL_PATH}${s.hand}.glb`,
+                (gltf) => {
+                    const bones = {};
+                    gltf.scene.traverse((o) => {
+                        if (o.isMesh || o.isSkinnedMesh) o.frustumCulled = false; // le ossa si muovono molto
+                        if (o.isBone || o.type === 'Bone') bones[o.name] = o;
+                    });
+                    s.handObj.add(gltf.scene);
+                    s.handModel = { root: gltf.scene, bones };
+                    s.handMesh.visible = false;
+                    s.handMesh.count = 0;
+                    console.log(`[XRInput] Mano ${s.hand}: mesh caricata, ${Object.keys(bones).length} ossa.`);
+                },
+                undefined,
+                (err) => {
+                    s.handModelPending = false;
+                    console.warn(`[XRInput] Mano ${s.hand} non caricata, resto con le sferette:`, err && err.message ? err.message : err);
+                }
+            );
+        },
+
+        /**
+         * Ridisegna la mano. Con la mesh caricata copia le pose sulle ossa;
+         * altrimenti disegna i giunti come sferette.
+         *
+         * In entrambi i casi la mano vive dentro il rig, quindi subisce la stessa
+         * scala del mondo della testa e resta proporzionata a ciò che si guarda.
+         */
+        _updateHandVisual: function (s) {
+            if (s.handModel) return this._updateHandBones(s);
+            return this._updateHandSpheres(s);
+        },
+
+        /** Copia la posa di ogni giunto sull'osso omonimo. */
+        _updateHandBones: function (s) {
+            const joints = s.handObj && s.handObj.joints;
+            const bones = s.handModel.bones;
+            if (!joints) { s.handModel.root.visible = false; return; }
+
+            let tracked = 0;
+            for (const name in bones) {
+                const j = joints[name];
+                if (!j || !j.visible) continue;
+                bones[name].position.copy(j.position);
+                bones[name].quaternion.copy(j.quaternion);
+                tracked++;
+            }
+            s.handModel.root.visible = tracked > 0;
+        },
+
+        /**
+         * Ripiego: una sferetta per giunto, in una sola InstancedMesh.
          * `jointRadius` arriva dalla posa ed è in metri fisici; la geometria ha
          * raggio 1, quindi la scala dell'istanza è direttamente il raggio.
          */
-        _updateHandVisual: function (s) {
+        _updateHandSpheres: function (s) {
             const THREE = window.THREE;
             const joints = s.handObj && s.handObj.joints;
             if (!joints) { s.handMesh.count = 0; return; }
