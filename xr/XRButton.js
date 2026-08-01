@@ -66,7 +66,13 @@
             if (window.XRLog) window.XRLog.mount(bar);
 
             xrSession.on('enter', () => this._setState(true));
-            xrSession.on('exit', () => this._setState(false));
+            xrSession.on('exit', () => {
+                this._setState(false);
+                // Si apre da solo appena si torna alla 2D: è l'unico momento in
+                // cui il log si può leggere comodamente, e cercarlo a mano dentro
+                // il visore è scomodo.
+                if (window.XRLog) window.XRLog.toggle(true);
+            });
             // La scala si può tarare col thumbstick dentro la sessione: al ritorno
             // lo slider deve mostrare il valore effettivamente raggiunto.
             xrSession.on('scale', () => this._syncScale());

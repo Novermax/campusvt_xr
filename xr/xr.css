@@ -153,31 +153,57 @@
 .xr-log-head {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 12px 16px;
+    gap: 12px;
+    padding: 16px 22px;
     background: rgba(255, 255, 255, .06);
-    font: 600 15px/1 system-ui, -apple-system, Segoe UI, sans-serif;
+    font: 700 24px/1 system-ui, -apple-system, Segoe UI, sans-serif;
 }
 
 .xr-log-head strong { flex: 1; }
 
 .xr-log-head button {
-    padding: 8px 14px;
-    min-height: 40px;
-    border: 1px solid rgba(255, 255, 255, .25);
-    border-radius: 8px;
-    font: 500 13px/1 system-ui, sans-serif;
+    padding: 12px 22px;
+    min-height: 52px;
+    border: 1px solid rgba(255, 255, 255, .3);
+    border-radius: 10px;
+    font: 600 18px/1 system-ui, sans-serif;
     color: #fff;
-    background: rgba(255, 255, 255, .08);
+    background: rgba(255, 255, 255, .1);
     cursor: pointer;
 }
 
-.xr-log-list {
-    overflow: auto;
-    padding: 10px 16px 16px;
-    font: 400 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+/* Riepilogo: è la parte che si legge davvero dentro il visore, quindi grande
+   e ad alto contrasto. Le righe di log sotto servono solo per i dettagli. */
+.xr-log-summary {
+    padding: 18px 22px;
+    border-bottom: 1px solid rgba(255, 255, 255, .12);
+    background: rgba(255, 255, 255, .03);
 }
 
-.xr-log-row { padding: 2px 0; border-bottom: 1px solid rgba(255, 255, 255, .05); word-break: break-word; }
+.xr-sum-row {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    padding: 7px 0;
+    font: 500 21px/1.35 system-ui, -apple-system, Segoe UI, sans-serif;
+}
+
+.xr-sum-label { flex: 0 0 46%; color: #9db2c8; }
+.xr-sum-value { flex: 1; font-weight: 700; word-break: break-word; }
+.xr-sum-ok .xr-sum-value { color: #7ee2a8; }
+.xr-sum-ko .xr-sum-value { color: #ff9b9b; }
+
+.xr-log-list {
+    overflow: auto;
+    padding: 14px 22px 20px;
+    font: 400 17px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.xr-log-row { padding: 4px 0; border-bottom: 1px solid rgba(255, 255, 255, .06); word-break: break-word; }
 .xr-log-warn { color: #ffd88a; }
 .xr-log-error { color: #ff9b9b; }
+
+@media (max-width: 900px) {
+    .xr-sum-row { flex-direction: column; gap: 2px; }
+    .xr-sum-label { flex: none; }
+}

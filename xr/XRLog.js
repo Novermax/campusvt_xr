@@ -83,12 +83,72 @@
             head.appendChild(close);
             panel.appendChild(head);
 
+            // Il riepilogo sta in cima e in grande: leggere righe di log dentro
+            // un visore è scomodo, quindi le domande a cui serve rispondere sono
+            // già risolte qui, in chiaro.
+            this.summary = document.createElement('div');
+            this.summary.className = 'xr-log-summary';
+            panel.appendChild(this.summary);
+
             this.list = document.createElement('div');
             this.list.className = 'xr-log-list';
             panel.appendChild(this.list);
 
             document.body.appendChild(panel);
             this.panel = panel;
+        },
+
+        /**
+         * Stato dei moduli XR in forma di frasi, non di numeri: va letto dentro
+         * un visore, spesso di sfuggita e senza poter scorrere comodamente.
+         */
+        _buildSummary: function () {
+            const X = window.XRSession, XI = window.XRInput, XH = window.XRHold;
+            const rows = [];
+            const add = (label, value, ok) => rows.push({ label, value, ok });
+
+            if (!X) { add('Layer XR', 'non caricato', false); return rows; }
+
+            add('WebXR', X.supported ? 'disponibile' : 'NON disponibile', !!X.supported);
+            add('Scala mondo', X.getWorldScale().toFixed(2) + '×', true);
+            add('Sfondo', X._prevBackground !== undefined ? 'azzurro applicato' : 'non applicato (mai entrato in VR?)',
+                X._prevBackground !== undefined);
+
+            if (XI) {
+                const conn = XI.sources.filter((s) => s.inputSource);
+                add('Mani/controller visti', conn.length
+                    ? conn.map((s) => `${s.hand} ${s.isHand ? 'mano' : 'controller'}`).join(', ')
+                    : 'NESSUNO', conn.length > 0);
+                const withMesh = XI.sources.filter((s) => s.handModel).length;
+                add('Mesh mano caricata', withMesh ? `sì (${withMesh})` : 'no — restano le sferette', withMesh > 0);
+                add('Bersagli premibili', String(XI.candidates.length), XI.candidates.length > 0);
+            } else {
+                add('Input XR', 'non inizializzato', false);
+            }
+
+            if (XH) {
+                add('Aggancio oggetti', XH.active ? 'installato' : 'NON installato', !!XH.active);
+                add('Ultimo oggetto in', XH.anchorParentName || 'mai agganciato', !!XH.anchorParentName);
+            }
+            return rows;
+        },
+
+        _renderSummary: function () {
+            if (!this.summary) return;
+            this.summary.textContent = '';
+            this._buildSummary().forEach((r) => {
+                const row = document.createElement('div');
+                row.className = 'xr-sum-row ' + (r.ok ? 'xr-sum-ok' : 'xr-sum-ko');
+                const l = document.createElement('span');
+                l.className = 'xr-sum-label';
+                l.textContent = r.label;
+                const v = document.createElement('span');
+                v.className = 'xr-sum-value';
+                v.textContent = r.value;
+                row.appendChild(l);
+                row.appendChild(v);
+                this.summary.appendChild(row);
+            });
         },
 
         toggle: function (force) {
@@ -98,9 +158,10 @@
         },
 
         _render: function () {
+            this._renderSummary();
             if (!this.list) return;
             this.list.textContent = '';
-            this.entries.slice(-80).forEach((e) => {
+            this.entries.slice(-40).forEach((e) => {
                 const row = document.createElement('div');
                 row.className = 'xr-log-row xr-log-' + e.level;
                 row.textContent = `${e.stamp}  ${e.text}`;
