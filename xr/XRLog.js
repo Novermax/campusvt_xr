@@ -99,6 +99,22 @@
         },
 
         /**
+         * Congela lo stato mentre la sessione è ancora viva.
+         *
+         * Senza questo il pannello è inutile: si apre all'uscita dalla VR, cioè
+         * dopo che `XRInput.dispose` ha azzerato le sorgenti, `XRHold.detach` ha
+         * staccato l'aggancio e lo sfondo è stato ripristinato. Leggerebbe le
+         * macerie e riporterebbe "NESSUNO" e "NON installato" anche dopo una
+         * sessione andata perfettamente.
+         *
+         * Va chiamato da XRSession all'inizio di `_onSessionEnd`, prima di
+         * qualunque smontaggio.
+         */
+        captureSession: function (extra) {
+            this.snapshot = { rows: this._buildSummary(), ...extra };
+        },
+
+        /**
          * Stato dei moduli XR in forma di frasi, non di numeri: va letto dentro
          * un visore, spesso di sfuggita e senza poter scorrere comodamente.
          */
@@ -136,7 +152,20 @@
         _renderSummary: function () {
             if (!this.summary) return;
             this.summary.textContent = '';
-            this._buildSummary().forEach((r) => {
+
+            // Lo scatto della sessione ha la precedenza: e' l'unico stato che
+            // descrive davvero cos'e' successo in VR.
+            const snap = this.snapshot;
+            const rows = snap ? snap.rows : this._buildSummary();
+
+            const head = document.createElement('div');
+            head.className = 'xr-sum-title';
+            head.textContent = snap
+                ? `Ultima sessione VR — durata ${snap.durata}`
+                : 'Stato attuale (nessuna sessione VR ancora conclusa)';
+            this.summary.appendChild(head);
+
+            rows.forEach((r) => {
                 const row = document.createElement('div');
                 row.className = 'xr-sum-row ' + (r.ok ? 'xr-sum-ok' : 'xr-sum-ko');
                 const l = document.createElement('span');

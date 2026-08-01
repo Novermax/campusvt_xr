@@ -214,6 +214,7 @@
 
                 this.session = session;
                 this.isPresenting = true;
+                this._startedAt = Date.now();
                 this._calibrated = false;
                 this._headSamples = [];
                 session.addEventListener('end', this._onSessionEnd.bind(this), { once: true });
@@ -242,6 +243,12 @@
 
         /** Cleanup: scatta sia su exitVR() sia se l'utente esce dal menu del visore. */
         _onSessionEnd: function () {
+            // PRIMA di qualunque smontaggio: dopo, sorgenti, aggancio e sfondo
+            // sono già stati azzerati e la fotografia mostrerebbe le macerie.
+            if (window.XRLog) {
+                const ms = this._startedAt ? Date.now() - this._startedAt : 0;
+                window.XRLog.captureSession({ durata: `${Math.round(ms / 1000)} s` });
+            }
             this.isPresenting = false;
             this.session = null;
             this._tuning = false;
