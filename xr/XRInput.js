@@ -544,11 +544,36 @@
                 if (!c) { ring.visible = false; return; }
 
                 const box = c.box;
-                box.getCenter(ring.position);
+
+                /*
+                 * L'anello va dove si tocca, non al baricentro. Su un pulsante
+                 * coincidono; su una porta alta due metri no — il baricentro
+                 * cade a mezz'aria in mezzo all'anta, mentre il punto utile sta
+                 * sul bordo verso cui ci si avvicina.
+                 *
+                 * Si usa il punto del box più vicino alla mano, cioè esattamente
+                 * quello che il test di contatto misura: l'anello indica così il
+                 * punto che fa scattare l'azione. Senza mani tracciate, il più
+                 * vicino a chi guarda.
+                 */
+                let ref = camPos;
+                let best = Infinity;
+                for (const s of this.sources) {
+                    for (const t of s.tips) {
+                        const d = box.distanceToPoint(t);
+                        if (d < best) { best = d; ref = t; }
+                    }
+                }
+                box.clampPoint(ref, ring.position);
+
                 const size = box.getSize(this._tmpB);
-                // Raggio legato all'ingombro, con un minimo: certi pulsanti sono
-                // minuscoli e un anello alla loro misura non si noterebbe.
-                const r = Math.max(0.035, Math.max(size.x, size.y, size.z) * 0.8);
+                /*
+                 * Raggio limitato in alto e in basso. Legarlo solo all'ingombro
+                 * dava un anello gigantesco attorno alla porta: l'indicatore deve
+                 * restare un segno di dimensione umana, come il cerchio giallo
+                 * del desktop che ha misura fissa a schermo.
+                 */
+                const r = Math.min(0.12, Math.max(0.035, Math.max(size.x, size.y, size.z) * 0.8));
 
                 // Scala ferma, opacità pulsante: un anello che cambia dimensione
                 // sembra allontanarsi e rende difficile mirare il bersaglio.
