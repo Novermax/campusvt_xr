@@ -1,23 +1,41 @@
 /* Stili del layer WebXR. Solo elementi aggiunti da xr/: nessuna regola qui
    deve sovrascrivere il CSS di core/, per non alterare la resa 2D. */
 
-.xr-badge {
+/* --- Pulsante di ingresso in VR ------------------------------------------ */
+
+.xr-enter-btn {
     position: fixed;
-    right: 12px;
-    bottom: 12px;
+    left: 50%;
+    bottom: 22px;
+    transform: translateX(-50%);
     z-index: 2147483000;
-    max-width: min(90vw, 460px);
-    padding: 8px 14px;
+
+    padding: 13px 26px;
+    border: 0;
     border-radius: 999px;
-    font: 500 13px/1.4 system-ui, -apple-system, Segoe UI, sans-serif;
+
+    font: 600 15px/1 system-ui, -apple-system, Segoe UI, sans-serif;
     color: #fff;
+    background: rgba(20, 90, 170, .94);
+
     cursor: pointer;
-    user-select: none;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, .35);
+    /* Bersaglio generoso: sul Quest si punta col raggio, non col mouse. */
+    min-width: 190px;
+    min-height: 48px;
+
+    box-shadow: 0 3px 14px rgba(0, 0, 0, .4);
     backdrop-filter: blur(6px);
+    transition: background .15s, transform .1s;
 }
 
-.xr-badge--ok { background: rgba(22, 128, 61, .92); }
-.xr-badge--ko { background: rgba(148, 44, 44, .92); }
+.xr-enter-btn:hover:not(:disabled) { background: rgba(26, 110, 205, .96); }
+.xr-enter-btn:active:not(:disabled) { transform: translateX(-50%) scale(.97); }
 
-.xr-badge:hover { filter: brightness(1.1); }
+.xr-enter-btn--active { background: rgba(150, 50, 40, .94); }
+.xr-enter-btn--active:hover:not(:disabled) { background: rgba(180, 62, 50, .96); }
+
+.xr-enter-btn--disabled,
+.xr-enter-btn:disabled {
+    background: rgba(90, 90, 95, .8);
+    cursor: not-allowed;
+}

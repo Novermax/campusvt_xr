@@ -47,7 +47,8 @@ su campusvt continuano così ad arrivare da sole.
 campusvt_xr/
 ├── core/                      submodule → Novermax/campusvt (READ-ONLY, shallow)
 ├── xr/                        layer WebXR — l'unico codice applicativo di questo repo
-│   ├── XRSession.js           bootstrap + sonda capability
+│   ├── XRSession.js           sonda capability, sessione immersiva, XRRig, loop
+│   ├── XRButton.js            pulsante entra/esci VR
 │   └── xr.css
 ├── libs-xr/                   (Milestone 2) KTX2Loader, MeshoptDecoder
 ├── assets-xr/pipeline/        (Milestone 2) gltf-transform → models-xr/
@@ -84,6 +85,19 @@ ADB (`adb reverse tcp:8000 tcp:8000`), che fa vedere al Quest il tuo `localhost`
 ### Test senza visore
 
 Estensione Chrome **WebXR API Emulator** → emula Quest 3 e i controller.
+
+### Entrare in VR
+
+Il pulsante **🥽 Entra in VR** compare in basso al centro, ma solo dentro uno
+scenario: prima non esiste ancora una scena 3D da mostrare. Sul desktop appare
+disabilitato, con il motivo nel tooltip.
+
+Entrando, il rig viene posizionato dove stava la camera desktop, proiettata a
+terra e con lo stesso orientamento orizzontale — quindi si entra esattamente
+nell'inquadratura dello step corrente. Uscendo, la camera desktop è ripristinata
+identica.
+
+Stato in qualunque momento: `XRSession.debugInfo()` dalla console.
 
 ### Test sul Quest 3
 
@@ -143,7 +157,7 @@ all'esaurimento memoria in VR.
 | # | Milestone | Stato |
 |---|---|---|
 | 0 | Setup: repo, submodule, build, deploy Pages | ✅ fatto |
-| 1 | Sessione XR: `renderer.xr`, `setAnimationLoop`, XRRig | ⏳ prossima |
+| 1 | Sessione XR: `renderer.xr`, `setAnimationLoop`, XRRig | ✅ fatto |
 | 2 | Pipeline asset → 72 Hz sullo scenario pilota | ⏳ **gate** |
 | 3 | Input: ray dai controller, highlight | ⏳ |
 | 4 | UI in-world (il DOM è invisibile in `immersive-vr`) | ⏳ |
