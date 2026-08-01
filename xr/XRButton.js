@@ -59,6 +59,7 @@
             // persistite, quindi si preparano da desktop e poi si indossa il visore.
             bar.appendChild(this._buildScaleSlider(xrSession));
             bar.appendChild(this._buildHeightPicker(xrSession));
+            bar.appendChild(this._buildGripPicker());
             document.body.appendChild(bar);
             this.bar = bar;
 
@@ -111,6 +112,56 @@
 
             this._scaleInput = input;
             this._scaleOutput = out;
+            return wrap;
+        },
+
+        /**
+         * Rotazione dell'oggetto impugnato. Due controlli, asse e angolo, perché
+         * quale asse produca la rotazione voluta dipende da come il modello è
+         * orientato nel proprio GLB: non è deducibile, va provato. Meglio poterlo
+         * fare qui che aspettare una nuova pubblicazione a ogni tentativo.
+         */
+        _buildGripPicker: function () {
+            const XH = window.XRHold;
+            const wrap = document.createElement('label');
+            wrap.className = 'xr-height';
+            wrap.title = 'Come sta ruotato in mano l\'oggetto impugnato.\n'
+                + 'Se l\'asse scelto non lo gira come vuoi, provane un altro.';
+
+            const txt = document.createElement('span');
+            txt.textContent = 'Rotazione in mano';
+            wrap.appendChild(txt);
+
+            const grip = XH ? XH.getGrip() : { rx: 0, ry: 0, rz: 90 };
+            const axisSel = document.createElement('select');
+            [['z', 'asse Z'], ['x', 'asse X'], ['y', 'asse Y']].forEach(([v, label]) => {
+                const o = document.createElement('option');
+                o.value = v; o.textContent = label;
+                axisSel.appendChild(o);
+            });
+
+            const degSel = document.createElement('select');
+            [0, 90, 180, 270].forEach((d) => {
+                const o = document.createElement('option');
+                o.value = String(d); o.textContent = d + '°';
+                if (grip.rz === d) o.selected = true;
+                degSel.appendChild(o);
+            });
+
+            const apply = () => {
+                if (!window.XRHold) return;
+                window.XRHold.rotate(axisSel.value, parseInt(degSel.value, 10));
+            };
+            axisSel.addEventListener('change', () => {
+                // Cambiando asse si azzerano gli altri, altrimenti le rotazioni
+                // si sommano e diventa impossibile capire cosa sta agendo.
+                ['x', 'y', 'z'].forEach((a) => { if (a !== axisSel.value) window.XRHold?.rotate(a, 0); });
+                apply();
+            });
+            degSel.addEventListener('change', apply);
+
+            wrap.appendChild(axisSel);
+            wrap.appendChild(degSel);
             return wrap;
         },
 

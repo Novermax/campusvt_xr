@@ -22,9 +22,23 @@
 (function () {
     'use strict';
 
-    /** Posa dell'oggetto rispetto al polso, in metri fisici. Il polso WebXR ha
-     *  +Y verso le dita, +Z verso il dorso. Tarabile con `XRHold.setGrip`. */
-    const GRIP = { x: 0, y: 0.055, z: -0.015, rx: -20, ry: 0, rz: 0 };
+    /**
+     * Posa dell'oggetto rispetto all'ancora, in metri fisici e gradi.
+     * Ancorando al palmo l'offset e' quasi nullo: l'oggetto sta gia' dove
+     * dovrebbe, serve solo staccarlo un poco dalla pelle.
+     * Tarabile con `XRHold.setGrip`, e persistita.
+     */
+    const GRIP = { x: 0, y: 0.01, z: -0.02, rx: -20, ry: 0, rz: 90 };
+
+    const GRIP_KEY = 'cvtxr.grip';
+
+    /**
+     * Giunto su cui appendere l'oggetto, in ordine di preferenza.
+     * `middle-finger-metacarpal` sta al centro del palmo — l'osso che va dal
+     * polso alla base del medio — ed e' il punto naturale dove appoggia un
+     * telecomando. Il polso resta come ripiego.
+     */
+    const ANCHOR_JOINTS = ['middle-finger-metacarpal', 'wrist'];
 
     /** Mano preferita per l'impugnatura. La destra resta libera di premere. */
     const PREFERRED_HAND = 'left';
@@ -132,15 +146,27 @@
         _anchorFor: function (s) {
             const THREE = window.THREE;
             const joints = s.handObj && s.handObj.joints;
-            const wrist = joints && joints.wrist;
-            const parent = (wrist && wrist.visible) ? wrist : s.controller;
+
+            let parent = s.controller;
+            let name = 'controller';
+            for (const j of ANCHOR_JOINTS) {
+                if (joints && joints[j] && joints[j].visible) {
+                    parent = joints[j];
+                    name = (j === 'wrist') ? 'polso' : 'palmo';
+                    break;
+                }
+            }
 
             if (!s._holdAnchor) {
                 s._holdAnchor = new THREE.Group();
                 s._holdAnchor.name = 'XRHoldAnchor';
             }
-            if (s._holdAnchor.parent !== parent) parent.add(s._holdAnchor);
-            this.anchorParentName = (parent === s.controller) ? 'controller' : 'polso';
+            if (s._holdAnchor.parent !== parent) {
+                parent.add(s._holdAnchor);
+                // Cambiare giunto cambia lo spazio: la centratura va rifatta.
+                [...s._holdAnchor.children].forEach((m) => { m.userData._xrHoldCenter = null; });
+            }
+            this.anchorParentName = name;
             return s._holdAnchor;
         },
 
@@ -254,8 +280,50 @@
             if (rx !== undefined) GRIP.rx = rx;
             if (ry !== undefined) GRIP.ry = ry;
             if (rz !== undefined) GRIP.rz = rz;
+            this._persistGrip();
+            this._invalidate();
             console.log(`[XRHold] Impugnatura: pos (${GRIP.x}, ${GRIP.y}, ${GRIP.z}) rot (${GRIP.rx}, ${GRIP.ry}, ${GRIP.rz})`);
             return { ...GRIP };
+        },
+
+        /**
+         * Rotazione dell'oggetto in mano, per asse. L'asse giusto dipende da come
+         * il modello e' orientato nel proprio GLB e non si puo' dedurre: va
+         * provato. Da qui e dal selettore sulla pagina 2D.
+         * @param {'x'|'y'|'z'} axis
+         * @param {number} deg
+         */
+        rotate: function (axis, deg) {
+            const key = 'r' + axis;
+            if (!(key in GRIP)) return null;
+            GRIP[key] = deg;
+            this._persistGrip();
+            this._invalidate();
+            console.log(`[XRHold] Rotazione ${axis} = ${deg}°`);
+            return { ...GRIP };
+        },
+
+        getGrip: function () { return { ...GRIP }; },
+
+        /** La centratura dipende da rotazione e scala: cambiandole va rifatta. */
+        _invalidate: function () {
+            (this.input ? this.input.sources : []).forEach((s) => {
+                if (s._holdAnchor) [...s._holdAnchor.children].forEach((m) => { m.userData._xrHoldCenter = null; });
+            });
+            if (this._head) [...this._head.children].forEach((m) => { m.userData._xrHoldCenter = null; });
+        },
+
+        _persistGrip: function () {
+            try { localStorage.setItem(GRIP_KEY, JSON.stringify(GRIP)); } catch (e) { /* storage negato */ }
+        },
+
+        _loadGrip: function () {
+            try {
+                const raw = JSON.parse(localStorage.getItem(GRIP_KEY));
+                if (raw && typeof raw === 'object') Object.keys(GRIP).forEach((k) => {
+                    if (typeof raw[k] === 'number') GRIP[k] = raw[k];
+                });
+            } catch (e) { /* niente di salvato */ }
         },
 
         debugInfo: function () {
@@ -273,5 +341,6 @@
         },
     };
 
+    XRHold._loadGrip();
     window.XRHold = XRHold;
 })();
