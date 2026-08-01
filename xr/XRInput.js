@@ -70,11 +70,8 @@
                 c.controller.removeEventListener('connected', c.onConnected);
                 c.controller.removeEventListener('disconnected', c.onDisconnected);
                 if (c.controller.parent) c.controller.parent.remove(c.controller);
-                if (c.grip.parent) c.grip.parent.remove(c.grip);
                 c.ray.geometry.dispose();
                 c.ray.material.dispose();
-                c.body.geometry.dispose();
-                c.body.material.dispose();
             });
             this.controllers = [];
             this.hovered = null;
@@ -93,7 +90,6 @@
             const rig = this.xr.rig;
 
             const controller = S.renderer.xr.getController(index);
-            const grip = S.renderer.xr.getControllerGrip(index);
 
             // Raggio: segmento unitario lungo -Z, allungato ogni frame fino al bersaglio.
             const geom = new THREE.BufferGeometry().setFromPoints([
@@ -110,17 +106,12 @@
             ray.scale.z = RAY_DEFAULT_LENGTH;
             controller.add(ray);
 
-            // Corpo del controller: forma minima, così si vede dove sta la mano.
-            // Niente XRControllerModelFactory: scaricherebbe i profili da un CDN
-            // esterno, e questo progetto vendorizza tutto in locale.
-            const body = new THREE.Mesh(
-                new THREE.BoxGeometry(0.035, 0.035, 0.10),
-                new THREE.MeshBasicMaterial({ color: 0x2c3440 })
-            );
-            body.position.z = 0.02;
-            grip.add(body);
-
-            const entry = { index, controller, grip, ray, body, hand: null, isHand: false, inputSource: null, flashUntil: 0 };
+            // Nessuna geometria sullo spazio grip. Un proxy disegnato da noi si
+            // sovrappone alla mano tracciata e la nasconde: il visore le disegna
+            // già, e meglio. Vale anche per i controller, per cui non usiamo
+            // nemmeno XRControllerModelFactory — che oltretutto scaricherebbe i
+            // profili da un CDN esterno, mentre qui si vendorizza tutto in locale.
+            const entry = { index, controller, ray, hand: null, isHand: false, inputSource: null, flashUntil: 0 };
 
             entry.onConnected = (e) => {
                 entry.inputSource = e.data;
@@ -139,7 +130,6 @@
             controller.addEventListener('selectstart', entry.onSelectStart);
 
             rig.add(controller);
-            rig.add(grip);
             return entry;
         },
 
