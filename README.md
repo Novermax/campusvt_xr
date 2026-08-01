@@ -100,16 +100,25 @@ identica.
 
 Stato in qualunque momento: `XRSession.debugInfo()` dalla console.
 
-#### Controller
+#### Controller o mani
 
-| Input | Azione |
-|---|---|
-| **Trigger** | interagisce con ciò che il raggio sta puntando |
-| **Thumbstick destro su/giù** | regola la scala del mondo |
+Funzionano entrambi: sul Quest le mani tracciate sono input source a pieno
+titolo, con lo stesso target ray, e il **pinch** genera lo stesso evento `select`
+del trigger. Il layer usa `getController(index)`, cioè lo spazio del target ray,
+che vale in tutti e due i casi.
 
-Il raggio è **grigio** quando non c'è nulla da premere, **giallo** quando è sopra
-un bersaglio interattivo; una vibrazione breve segnala l'aggancio, una più decisa
-il comando andato a segno.
+| Input | Controller | Mani |
+|---|---|---|
+| Interagire | trigger | pinch (pollice + indice) |
+| Scala del mondo | thumbstick destro su/giù | — usa lo slider 2D |
+| Conferma tattile | vibrazione | — non disponibile |
+
+Il raggio è **grigio** quando non c'è nulla da premere, **giallo** sopra un
+bersaglio interattivo, e **lampeggia bianco** sul comando andato a segno. Il
+lampo non è ridondante rispetto alla vibrazione: con le mani l'aptica non esiste,
+e senza di esso non resterebbe alcuna conferma dell'azione.
+
+`XRInput.debugInfo()` riporta, per ciascuna sorgente, se è una mano o un controller.
 
 L'ordine di priorità replica quello del desktop (`handleModelClick`): figlio
 interattivo, poi ripiego sui pulsanti evidenziati, poi azione sul modello radice.

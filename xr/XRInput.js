@@ -27,6 +27,10 @@
 
     const COLOR_IDLE = 0x9fb4c7;   // grigio-azzurro: non c'è nulla da premere
     const COLOR_HOT = 0xffd21e;    // giallo: bersaglio interattivo sotto il raggio
+    const COLOR_FIRED = 0xffffff;  // lampo bianco: comando andato a segno
+
+    /** Durata del lampo di conferma, in ms. */
+    const FLASH_MS = 160;
 
     const XRInput = {
         enabled: false,
@@ -116,10 +120,18 @@
             body.position.z = 0.02;
             grip.add(body);
 
-            const entry = { index, controller, grip, ray, body, hand: null, inputSource: null };
+            const entry = { index, controller, grip, ray, body, hand: null, isHand: false, inputSource: null, flashUntil: 0 };
 
-            entry.onConnected = (e) => { entry.inputSource = e.data; entry.hand = e.data.handedness; };
-            entry.onDisconnected = () => { entry.inputSource = null; entry.hand = null; };
+            entry.onConnected = (e) => {
+                entry.inputSource = e.data;
+                entry.hand = e.data.handedness;
+                // Mani tracciate: stesso target ray, ma il pinch sostituisce il
+                // trigger, non esistono aptica né thumbstick, e non c'è gripSpace
+                // — quindi il corpo del controller resta giustamente invisibile.
+                entry.isHand = !!e.data.hand;
+                console.log(`[XRInput] ${entry.hand || '?'}: ${entry.isHand ? 'mano tracciata (pinch)' : 'controller (trigger)'}`);
+            };
+            entry.onDisconnected = () => { entry.inputSource = null; entry.hand = null; entry.isHand = false; };
             entry.onSelectStart = () => this._onSelect(entry);
 
             controller.addEventListener('connected', entry.onConnected);
@@ -142,10 +154,14 @@
             let best = null;
             let bestCtrl = null;
 
+            const now = performance.now();
             for (const c of this.controllers) {
                 const hit = this._firstActionableHit(c);
                 this._stretchRay(c, hit ? hit.distance : null);
-                c.ray.material.color.setHex(hit ? COLOR_HOT : COLOR_IDLE);
+                // Il lampo di conferma vince sul colore di hover finché dura.
+                c.ray.material.color.setHex(
+                    now < c.flashUntil ? COLOR_FIRED : (hit ? COLOR_HOT : COLOR_IDLE)
+                );
                 if (hit && (!best || hit.distance < best.distance)) { best = hit; bestCtrl = c; }
             }
 
@@ -241,7 +257,7 @@
                 for (const h of hits) {
                     if (!h.object.userData || !h.object.userData.interactive) continue;
                     if (IO.handleClick(h.object, { isXR: true, point: h.point })) {
-                        this._pulse(c, 0.5, 30);
+                        this._confirm(c);
                         console.log(`[XRInput] ✅ ${h.object.name} gestito da InteractiveObject3D`);
                         return;
                     }
@@ -254,7 +270,7 @@
                         if (!ray.intersectObject(mesh, true).length) continue;
 
                         if (IO.handleClick(mesh, { isXR: true })) {
-                            this._pulse(c, 0.5, 30);
+                            this._confirm(c);
                             console.log(`[XRInput] ✅ ripiego evidenziato: ${mesh.name}`);
                             return;
                         }
@@ -280,7 +296,7 @@
             // Come sul desktop: se il DragDropSystem è attivo gestisce lui.
             if (S.dragDropSystem && S.dragDropSystem.enabled) return false;
             S.handleModelAction(root);
-            this._pulse(c, 0.5, 30);
+            this._confirm(c);
             console.log(`[XRInput] ✅ azione su modello: ${root.name}`);
             return true;
         },
@@ -295,6 +311,17 @@
             if (act && act.pulse) { try { act.pulse(intensity, ms); } catch (e) { /* non supportato */ } }
         },
 
+        /**
+         * Conferma di comando eseguito: vibrazione più lampo bianco del raggio.
+         * Il lampo non è ridondante — con le mani tracciate non esiste aptica, e
+         * senza di esso resterebbe zero conferma dell'azione andata a segno.
+         */
+        _confirm: function (c) {
+            this._pulse(c, 0.5, 30);
+            c.flashUntil = performance.now() + FLASH_MS;
+            c.ray.material.color.setHex(COLOR_FIRED);
+        },
+
         // =====================================================================
         // Debug
         // =====================================================================
@@ -302,7 +329,10 @@
         debugInfo: function () {
             const info = {
                 attivo: this.enabled,
-                controller: this.controllers.map((c) => c.hand || `#${c.index} non connesso`).join(', ') || 'nessuno',
+                sorgenti: this.controllers
+                    .map((c) => c.inputSource ? `${c.hand} = ${c.isHand ? 'mano (pinch)' : 'controller (trigger)'}` : `#${c.index} non connesso`)
+                    .join('  |  ') || 'nessuna',
+                aptica: this.controllers.some((c) => c.inputSource && !c.isHand) ? 'disponibile' : 'no (mani tracciate)',
                 sottoIlRaggio: this.hovered ? this.hovered.name : 'niente',
                 distanza: this.lastHit ? +this.lastHit.distance.toFixed(2) : null,
                 pulsantiEvidenziati: window.InteractiveObject3D && window.InteractiveObject3D.highlightedButtons
