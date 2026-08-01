@@ -38,17 +38,40 @@
 
         // =====================================================================
 
+        /*
+         * Vanno avvolti DUE metodi, non uno.
+         *
+         * `animatePick` è quello che conta: porta l'oggetto in posizione con una
+         * TWEEN che scrive posizione e rotazione a ogni frame, e a fine corsa fa
+         * `holdContainer.attach(model)`. `updateHeldObjectPosition` viene invece
+         * usato solo nel ramo di ripiego senza TWEEN (HoldableSystem.js:442), che
+         * non scatta mai perché tween.umd.js è sempre caricato — patcharlo da
+         * solo non produce alcun effetto.
+         */
         attach: function (xrSession, xrInput) {
             const H = window.HoldableSystem;
-            if (!H || this._orig || typeof H.updateHeldObjectPosition !== 'function') return;
+            if (!H || this._orig || typeof H.animatePick !== 'function') return;
 
             this.xr = xrSession;
             this.input = xrInput;
             this._orig = H.updateHeldObjectPosition.bind(H);
+            this._origPick = H.animatePick.bind(H);
 
             const self = this;
+            const inXR = () => self.xr && self.xr.isPresenting;
+
+            // In VR l'oggetto scatta in mano: l'animazione serviva a farlo entrare
+            // nell'inquadratura, ma se lo prendi tu il movimento è già il tuo.
+            H.animatePick = function (model, config, onComplete) {
+                if (!inXR()) return self._origPick(model, config, onComplete);
+                self._placeInHand(model);
+                model.userData.pickAnimationProgress = 1;
+                console.log(`[XRHold] "${model.name}" agganciato alla mano.`);
+                if (onComplete) onComplete();
+            };
+
             H.updateHeldObjectPosition = function (model) {
-                if (!self.xr || !self.xr.isPresenting) return self._orig(model);
+                if (!inXR()) return self._orig(model);
                 self._placeInHand(model);
             };
 
@@ -59,7 +82,9 @@
         detach: function () {
             const H = window.HoldableSystem;
             if (H && this._orig) H.updateHeldObjectPosition = this._orig;
+            if (H && this._origPick) H.animatePick = this._origPick;
             this._orig = null;
+            this._origPick = null;
 
             // Restituisce al grafo originale gli oggetti che avevamo spostato:
             // altrimenti alla vista desktop resterebbero appesi a un'ancora

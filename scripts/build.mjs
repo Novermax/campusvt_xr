@@ -22,7 +22,8 @@
  *                menuimages): ~175 MB → ~10 MB, build molto più rapido.
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { cp, mkdir, readFile, rm, writeFile, readdir, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -81,6 +82,23 @@ const XR_STYLES = ['xr/xr.css'];
 // XRButton e XRInput prima di XRSession: quest'ultimo li usa a init e a sessione avviata.
 const XR_SCRIPTS = ['xr/XRButton.js', 'xr/XRLocomotion.js', 'xr/XRHold.js', 'xr/XRInput.js', 'xr/XRSession.js'];
 
+/**
+ * Cache-buster sui file XR, calcolato dal contenuto.
+ *
+ * Serve davvero: senza, il Quest Browser continua a servire la versione in
+ * cache e un deploy sembra non aver cambiato nulla. Tutti gli script di core
+ * portano un `?v=` proprio per questo motivo.
+ *
+ * Dal contenuto e non dal timestamp: l'URL cambia solo quando il file cambia,
+ * così un rebuild identico non invalida inutilmente la cache.
+ */
+function bust(relPath) {
+    const abs = join(ROOT, relPath);
+    if (!existsSync(abs)) return '';
+    const h = createHash('sha1').update(readFileSync(abs)).digest('hex').slice(0, 8);
+    return `?v=${h}`;
+}
+
 function transformIndexHtml(html) {
     const report = { droppedScripts: [], droppedStyles: [], injected: [] };
 
@@ -105,7 +123,7 @@ function transformIndexHtml(html) {
     });
 
     // 3. Inietta il CSS XR prima di </head>.
-    const styleTags = XR_STYLES.map((h) => `    <link rel="stylesheet" href="${h}">`).join('\n');
+    const styleTags = XR_STYLES.map((h) => `    <link rel="stylesheet" href="${h}${bust(h)}">`).join('\n');
     if (!html.includes('</head>')) throw new Error('index.html: </head> non trovato');
     html = html.replace('</head>', `\n    <!-- === CVT-XR: stili layer WebXR === -->\n${styleTags}\n</head>`);
     report.injected.push(...XR_STYLES);
@@ -113,7 +131,7 @@ function transformIndexHtml(html) {
     // 4. Inietta gli script XR in coda al body. Devono girare DOPO i moduli di
     //    core: si agganciano comunque all'evento `app:initialized` (core/js/app.js:570),
     //    quindi l'ordine esatto rispetto a js/app.js (type=module, async) è indifferente.
-    const scriptTags = XR_SCRIPTS.map((s) => `    <script src="${s}"></script>`).join('\n');
+    const scriptTags = XR_SCRIPTS.map((s) => `    <script src="${s}${bust(s)}"></script>`).join('\n');
     if (!html.includes('</body>')) throw new Error('index.html: </body> non trovato');
     html = html.replace('</body>', `\n    <!-- === CVT-XR: layer WebXR === -->\n${scriptTags}\n</body>`);
     report.injected.push(...XR_SCRIPTS);
