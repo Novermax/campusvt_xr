@@ -1,15 +1,23 @@
 /* Stili del layer WebXR. Solo elementi aggiunti da xr/: nessuna regola qui
    deve sovrascrivere il CSS di core/, per non alterare la resa 2D. */
 
-/* --- Pulsante di ingresso in VR ------------------------------------------ */
+/* --- Barra XR: pulsante di ingresso + altezza operatore ------------------- */
 
-.xr-enter-btn {
+.xr-bar {
     position: fixed;
     left: 50%;
     bottom: 22px;
     transform: translateX(-50%);
     z-index: 2147483000;
 
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.xr-enter-btn {
     padding: 13px 26px;
     border: 0;
     border-radius: 999px;
@@ -29,7 +37,7 @@
 }
 
 .xr-enter-btn:hover:not(:disabled) { background: rgba(26, 110, 205, .96); }
-.xr-enter-btn:active:not(:disabled) { transform: translateX(-50%) scale(.97); }
+.xr-enter-btn:active:not(:disabled) { transform: scale(.97); }
 
 .xr-enter-btn--active { background: rgba(150, 50, 40, .94); }
 .xr-enter-btn--active:hover:not(:disabled) { background: rgba(180, 62, 50, .96); }
@@ -39,3 +47,39 @@
     background: rgba(90, 90, 95, .8);
     cursor: not-allowed;
 }
+
+/* --- Selettore altezza operatore ----------------------------------------- */
+
+.xr-height {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    padding: 8px 14px;
+    border-radius: 999px;
+
+    font: 500 13px/1 system-ui, -apple-system, Segoe UI, sans-serif;
+    color: #fff;
+    background: rgba(30, 34, 42, .88);
+
+    min-height: 48px;
+    box-shadow: 0 3px 14px rgba(0, 0, 0, .4);
+    backdrop-filter: blur(6px);
+    cursor: pointer;
+}
+
+.xr-height select {
+    padding: 6px 8px;
+    border: 1px solid rgba(255, 255, 255, .25);
+    border-radius: 7px;
+
+    font: 500 13px/1 system-ui, -apple-system, Segoe UI, sans-serif;
+    color: #fff;
+    background: rgba(0, 0, 0, .35);
+
+    min-height: 32px;
+    cursor: pointer;
+}
+
+/* Il menu a tendina nativo rende su fondo chiaro: le option vanno forzate. */
+.xr-height select option { color: #111; background: #fff; }

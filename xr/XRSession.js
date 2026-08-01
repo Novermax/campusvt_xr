@@ -28,6 +28,16 @@
     /** Altezza occhi di ripiego se il visore non concede `local-floor`. */
     const FALLBACK_EYE_HEIGHT = 1.6;
 
+    /** Chiave localStorage dell'altezza occhi scelta dall'operatore. */
+    const EYE_HEIGHT_KEY = 'cvtxr.eyeHeight';
+
+    /** Frame di posa da mediare prima di calibrare, ~0,3 s a 72 Hz. */
+    const CALIBRATION_SAMPLES = 20;
+
+    /** Scratch riusato nel loop per non allocare a ogni frame. THREE arriva tardi
+     *  (lo importa core/js/app.js come ES module), quindi si crea al primo uso. */
+    let _tmpVec = null;
+
     const XRSession = {
         version: '1.0.0-m1',
 
@@ -49,6 +59,11 @@
         _cameraRestore: null,
         _touchWasEnabled: null,
         _listeners: { enter: [], exit: [] },
+        _rigBaseY: 0,
+        _headSamples: [],
+        _calibrated: false,
+        /** Ultima altezza occhi misurata dal visore, in metri. Diagnostica. */
+        measuredEyeHeight: null,
 
         // =====================================================================
         // Avvio
@@ -169,6 +184,8 @@
 
                 this.session = session;
                 this.isPresenting = true;
+                this._calibrated = false;
+                this._headSamples = [];
                 session.addEventListener('end', this._onSessionEnd.bind(this), { once: true });
 
                 this._suspendTouchSystem();
@@ -233,6 +250,7 @@
             };
 
             S.renderer.setAnimationLoop(function () {
+                if (self.isPresenting) self._sampleHead();
                 self._inFrame = true;
                 try { original(); } finally { self._inFrame = false; }
             });
@@ -257,6 +275,8 @@
             const S = window.Scene3D;
             const THREE = window.THREE;
             if (this.rig) return;
+
+            if (!_tmpVec) _tmpVec = new THREE.Vector3();
 
             const rig = new THREE.Group();
             rig.name = 'XRRig';
@@ -323,6 +343,9 @@
             if (this.referenceSpaceType !== 'local-floor') {
                 this.rig.position.y = -FALLBACK_EYE_HEIGHT;
             }
+            // Riferimento per la calibrazione: l'eventuale correzione di altezza
+            // si applica come scostamento da qui.
+            this._rigBaseY = this.rig.position.y;
 
             // Ruota il rig perché il suo -Z (avanti) segua la direzione orizzontale
             // di sguardo della camera desktop.
@@ -331,6 +354,96 @@
 
             this.rig.updateMatrixWorld(true);
             console.log(`[XR] Rig posizionato a (${this.rig.position.x.toFixed(2)}, ${this.rig.position.y.toFixed(2)}, ${this.rig.position.z.toFixed(2)})`);
+        },
+
+        // =====================================================================
+        // Altezza dell'operatore
+        // =====================================================================
+
+        /*
+         * I modelli sono in scala reale (a500 = 2,80 m, pulpito = 1,27 m), quindi
+         * con `local-floor` l'altezza di default è già corretta: gli occhi stanno
+         * dove stanno davvero. Serve comunque poterla imporre, per due motivi:
+         *
+         *  1. la calibrazione del pavimento del Guardian può essere sbagliata (se
+         *     fatta da seduti o su una superficie rialzata, y=0 finisce troppo in
+         *     alto e l'operatore si sente gigante);
+         *  2. in un training è spesso preferibile che tutti vedano la macchina
+         *     dalla stessa altezza, indipendentemente dalla statura reale.
+         *
+         * Non si può però imporre `rig.y` a priori: l'altezza vera la conosciamo
+         * solo dalla posa del visore, a sessione avviata. Quindi campioniamo i
+         * primi frame e correggiamo una volta sola (`_calibrateHeight`).
+         */
+
+        /**
+         * Altezza occhi desiderata, in metri sopra il pavimento virtuale.
+         * `null` = automatica, cioè l'altezza reale dell'operatore.
+         * @returns {number|null}
+         */
+        getEyeHeight: function () {
+            try {
+                const v = localStorage.getItem(EYE_HEIGHT_KEY);
+                if (v === null || v === 'auto') return null;
+                const n = parseFloat(v);
+                return Number.isFinite(n) && n > 0.5 && n < 2.5 ? n : null;
+            } catch (e) {
+                return null;
+            }
+        },
+
+        /**
+         * @param {number|null} meters altezza occhi voluta, o null per automatica.
+         *        Applicata subito se una sessione è già in corso.
+         */
+        setEyeHeight: function (meters) {
+            try {
+                if (meters === null) localStorage.removeItem(EYE_HEIGHT_KEY);
+                else localStorage.setItem(EYE_HEIGHT_KEY, String(meters));
+            } catch (e) { /* storage negato: resta valido per questa sessione */ }
+
+            if (this.isPresenting) {
+                this._calibrated = false;
+                this._headSamples = [];
+                if (meters === null && this.rig) {
+                    this.rig.position.y = this._rigBaseY; // torna all'altezza reale
+                }
+            }
+            console.log(`[XR] Altezza occhi impostata: ${meters === null ? 'automatica' : meters.toFixed(2) + ' m'}`);
+        },
+
+        /** Raccoglie la posa verticale della testa; calibra una volta raggiunti i campioni. */
+        _sampleHead: function () {
+            const S = window.Scene3D;
+            if (!this.rig || !S || !S.camera) return;
+
+            const h = S.camera.getWorldPosition(_tmpVec).y - this.rig.position.y;
+            if (!Number.isFinite(h) || h <= 0.2) return; // posa non ancora valida
+            this.measuredEyeHeight = h;
+
+            if (this._calibrated) return;
+            this._headSamples.push(h);
+            if (this._headSamples.length >= CALIBRATION_SAMPLES) this._calibrateHeight();
+        },
+
+        /** Sposta il rig perché gli occhi cadano all'altezza richiesta. */
+        _calibrateHeight: function () {
+            this._calibrated = true;
+
+            const target = this.getEyeHeight();
+            const samples = this._headSamples.slice().sort((a, b) => a - b);
+            const measured = samples[Math.floor(samples.length / 2)]; // mediana: ignora scatti
+            this.measuredEyeHeight = measured;
+
+            if (target === null) {
+                console.log(`[XR] Altezza occhi automatica: ${measured.toFixed(2)} m (nessuna correzione).`);
+                return;
+            }
+
+            const delta = target - measured;
+            this.rig.position.y = this._rigBaseY + delta;
+            this.rig.updateMatrixWorld(true);
+            console.log(`[XR] Altezza calibrata: misurata ${measured.toFixed(2)} m → richiesta ${target.toFixed(2)} m (correzione ${delta >= 0 ? '+' : ''}${delta.toFixed(2)} m).`);
         },
 
         // =====================================================================
@@ -407,6 +520,8 @@
                 referenceSpace: this.referenceSpaceType,
                 loopOwned: this._loopOwned,
                 rig: this.rig ? this.rig.position.toArray().map((n) => +n.toFixed(2)) : null,
+                altezzaOcchiMisurata: this.measuredEyeHeight ? +this.measuredEyeHeight.toFixed(2) + ' m' : 'non ancora misurata',
+                altezzaOcchiRichiesta: this.getEyeHeight() === null ? 'automatica' : this.getEyeHeight().toFixed(2) + ' m',
                 triangoli: S?.renderer?.info?.render?.triangles ?? null,
                 drawCalls: S?.renderer?.info?.render?.calls ?? null,
             };

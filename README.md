@@ -99,6 +99,25 @@ identica.
 
 Stato in qualunque momento: `XRSession.debugInfo()` dalla console.
 
+#### Altezza dell'operatore
+
+I modelli sono in scala reale — `a500.glb` è alto 2,80 m, `pulpito.glb` 1,27 m —
+quindi con `local-floor` l'altezza di default è già corretta. Il selettore
+**Altezza occhi** accanto al pulsante serve comunque per due casi concreti:
+
+- la calibrazione del pavimento del Guardian è imprecisa (fatta da seduti o su
+  una superficie rialzata: y=0 finisce troppo in alto e ci si sente giganti);
+- in un training si vuole che tutti vedano la macchina dalla stessa altezza,
+  a prescindere dalla statura.
+
+L'altezza non è imponibile a priori: quella reale la dà solo la posa del visore.
+Il layer campiona quindi i primi 20 frame, ne prende la **mediana** (così uno
+scatto anomalo non falsa la misura) e sposta il rig una volta sola. La scelta è
+persistita in `localStorage`, quindi si imposta una volta e resta.
+
+Da console: `XRSession.setEyeHeight(1.70)` oppure `XRSession.setEyeHeight(null)`
+per tornare alla statura reale.
+
 ### Test sul Quest 3
 
 1. Modalità sviluppatore attiva sul visore, collegato via USB.
