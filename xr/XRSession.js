@@ -286,6 +286,7 @@
 
             S.renderer.setAnimationLoop(function (time) {
                 if (self.isPresenting) {
+                    self._guardRig();
                     self._pollScaleTuning(time);
                     self._sampleHead();
                     if (window.XRInput) window.XRInput.update();
@@ -607,6 +608,25 @@
             this.rig.position.y = this._rigBaseY + delta;
             this.rig.updateMatrixWorld(true);
             console.log(`[XR] Altezza calibrata: misurata ${measured.toFixed(2)} m → richiesta ${target.toFixed(2)} m (correzione ${delta >= 0 ? '+' : ''}${delta.toFixed(2)} m).`);
+        },
+
+        /**
+         * Rimette la camera nel rig se qualcuno gliel'ha portata via.
+         *
+         * `HoldableSystem.init` fa `scene.add(this.camera)` quando la camera non
+         * è figlia diretta della scena (core/js/core/HoldableSystem.js:102) — gli
+         * serve perché il renderer disegni `holdContainer`, che è figlio della
+         * camera. Se quell'init capita mentre siamo in sessione, il rig viene
+         * scavalcato e con esso posizione, rotazione e scala dell'osservatore.
+         *
+         * Controllo per frame: un confronto di riferimenti, costo nullo.
+         */
+        _guardRig: function () {
+            const S = window.Scene3D;
+            if (!this.rig || !S || !S.camera) return;
+            if (S.camera.parent === this.rig) return;
+            console.warn('[XR] Camera sottratta al rig, la riaggancio.');
+            this.rig.add(S.camera);
         },
 
         // =====================================================================

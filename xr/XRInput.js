@@ -87,12 +87,16 @@
             this._lastRebuild = 0;
 
             if (window.XRLocomotion) window.XRLocomotion.init(xrSession, this);
+            if (window.XRHold) window.XRHold.attach(xrSession, this);
 
             this.enabled = true;
             console.log('[XRInput] Interazione a contatto attiva. Tocca i comandi col dito.');
         },
 
         dispose: function () {
+            // Prima XRHold: deve restituire gli oggetti impugnati al grafo
+            // originale finché le ancore esistono ancora.
+            if (window.XRHold) window.XRHold.detach();
             if (window.XRLocomotion) window.XRLocomotion.dispose();
             this.sources.forEach((s) => {
                 if (s.controller.parent) s.controller.parent.remove(s.controller);

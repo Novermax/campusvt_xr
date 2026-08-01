@@ -140,6 +140,31 @@ Tarabile a caldo con `XRInput.setPokeRadius(0.03)`.
 `XRInput.debugInfo()` riporta, per ciascuna sorgente, se è una mano o un
 controller, cosa ha vicino e cosa sta premendo.
 
+#### Oggetti impugnati
+
+Sul desktop `HoldableSystem` ancora l'oggetto impugnato alla **camera**: giusto
+lì, dove non ci sono mani e l'oggetto deve stare in un angolo fisso
+dell'inquadratura. In VR è sbagliato due volte.
+
+Il calcolo non torna più: `updateHeldObjectPosition`
+(`core/js/core/HoldableSystem.js:454`) somma `camera.position` trattandolo come
+coordinata mondo. Lo era finché la camera era figlia di `Scene`; da quando è
+figlia dell'`XRRig` è **locale**, e l'oggetto finiva a quasi 4 unità dalla testa.
+Ed è comunque innaturale: in VR l'oggetto lo si prende in mano.
+
+`xr/XRHold.js` avvolge quel metodo e aggancia l'oggetto al **polso** della mano
+sinistra — la destra resta libera di premere — con ripiego sul controller se il
+polso non è tracciato. Presa, rilascio e stato degli step restano di
+`HoldableSystem`: `core/` non è toccato.
+
+L'ancora vive sotto il rig, quindi la scala va compensata (`1/scalaMondo`),
+altrimenti l'oggetto rimpicciolirebbe rispetto alla macchina invece di
+conservare la sua dimensione in unità scena.
+
+Taratura a caldo: `XRHold.setGrip(x, y, z, rx, ry, rz)` — posizione in metri
+rispetto al polso, rotazione in gradi. La posa giusta si giudica solo indossando
+il visore.
+
 #### Spostarsi: teleport
 
 Serve perché l'interazione è a contatto: se non si punta più da lontano, bisogna
