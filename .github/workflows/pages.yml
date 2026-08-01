@@ -1,0 +1,65 @@
+name: Deploy GitHub Pages
+
+# Pubblica https://novermax.github.io/campusvt_xr/
+#
+# NOTA: il deploy "from branch" di GitHub Pages non risolve i submodule in modo
+# affidabile. Serve questo workflow, che fa checkout ricorsivo di `core/` e
+# appiattisce il sito con scripts/build.mjs prima di pubblicare.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Un deploy alla volta; non annulla quello in corso.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (con submodule core/)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          # Shallow: la history di campusvt pesa ~1,5 GB e qui serve solo l'albero
+          # al SHA pinnato.
+          fetch-depth: 1
+
+      - name: Verifica pin del submodule
+        run: |
+          echo "Commit di core/ pinnato:"
+          git submodule status
+          test -f core/index.html || { echo "::error::core/ non inizializzato"; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build sito appiattito
+        run: node scripts/build.mjs --out _site
+
+      - name: Configura Pages
+        uses: actions/configure-pages@v5
+
+      - name: Carica artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

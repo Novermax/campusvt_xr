@@ -1,0 +1,19 @@
+# Output del build (rigenerabile con: node scripts/build.mjs)
+_site/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+
+# Temporanei
+*.tmp
+*.log

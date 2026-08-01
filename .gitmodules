@@ -1,0 +1,7 @@
+[submodule "core"]
+	path = core
+	url = https://github.com/Novermax/campusvt.git
+	branch = main
+	# Clone shallow: la history di campusvt pesa ~1,5 GB e non serve qui.
+	# Il pin effettivo resta il SHA registrato nell'indice di questo repo.
+	shallow = true
