@@ -183,7 +183,11 @@
         toggle: function (force) {
             if (!this.panel) return;
             this.panel.hidden = force === undefined ? !this.panel.hidden : !force;
-            if (!this.panel.hidden) this._render();
+            if (!this.panel.hidden) {
+                this._render();
+                // Un pannello alla volta: sovrapposti sono illeggibili nel visore.
+                if (window.XRButton && window.XRButton._gripPanel) window.XRButton._gripPanel.hidden = true;
+            }
         },
 
         _render: function () {

@@ -28,7 +28,10 @@
      * dovrebbe, serve solo staccarlo un poco dalla pelle.
      * Tarabile con `XRHold.setGrip`, e persistita.
      */
-    const GRIP = { x: 0, y: 0.01, z: -0.02, rx: -20, ry: 0, rz: 90 };
+    /* Punto di partenza, non verità: rotazione Y di 90° più una seconda su Z, da
+     * verificare. L'inclinazione arbitraria di prima è stata tolta — falsava la
+     * taratura senza aggiungere nulla. */
+    const GRIP = { x: 0, y: 0.01, z: -0.02, rx: 0, ry: 90, rz: 90 };
 
     const GRIP_KEY = 'cvtxr.grip';
 

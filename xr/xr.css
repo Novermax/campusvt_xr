@@ -205,6 +205,54 @@
     font: 400 17px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
+/* --- Taratura impugnatura -------------------------------------------------
+   Pulsanti grandi invece di slider: si premono col dito dentro un visore, dove
+   uno slider non permette di essere precisi. */
+
+.xr-grip-panel {
+    position: fixed;
+    inset: 8vh 12vw auto 12vw;
+    z-index: 2147483001;
+    border-radius: 14px;
+    overflow: hidden;
+    color: #e8eef5;
+    background: rgba(16, 19, 24, .96);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, .55);
+}
+
+.xr-grip-body { padding: 12px 22px 20px; }
+
+.xr-grip-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 9px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, .06);
+    font: 500 21px/1 system-ui, -apple-system, Segoe UI, sans-serif;
+}
+
+.xr-grip-label { flex: 1; color: #9db2c8; }
+
+.xr-grip-value {
+    min-width: 5.5em;
+    text-align: center;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.xr-grip-row button {
+    width: 62px;
+    min-height: 56px;
+    border: 1px solid rgba(255, 255, 255, .25);
+    border-radius: 10px;
+    font: 700 26px/1 system-ui, sans-serif;
+    color: #fff;
+    background: rgba(255, 255, 255, .1);
+    cursor: pointer;
+}
+
+.xr-grip-row button:active { background: rgba(255, 255, 255, .22); }
+
 .xr-log-row { padding: 4px 0; border-bottom: 1px solid rgba(255, 255, 255, .06); word-break: break-word; }
 .xr-log-warn { color: #ffd88a; }
 .xr-log-error { color: #ff9b9b; }
