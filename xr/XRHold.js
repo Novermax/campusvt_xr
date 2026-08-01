@@ -111,9 +111,17 @@
         /** Sorgente da usare per l'impugnatura: la preferita se c'è, altrimenti l'altra. */
         _pickSource: function () {
             const src = this.input ? this.input.sources : [];
-            return src.find((s) => s.inputSource && s.hand === PREFERRED_HAND)
-                || src.find((s) => s.inputSource)
-                || null;
+            const found = src.find((s) => s.inputSource && s.hand === PREFERRED_HAND)
+                || src.find((s) => s.inputSource);
+            if (found) { this._lastSource = found; return found; }
+
+            // Le mani tracciate si disconnettono appena escono dal campo delle
+            // camere — succede di continuo, abbassando il braccio. Senza questa
+            // memoria l'oggetto salterebbe alla testa e tornerebbe alla mano a
+            // ogni sfarfallio. Meglio lasciarlo dov'è finché la mano non torna.
+            const last = this._lastSource;
+            if (last && last._holdAnchor && last._holdAnchor.parent) return last;
+            return null;
         },
 
         /**
@@ -168,6 +176,7 @@
                     };
                 }
                 anchor.add(model);
+                model.userData._xrHoldCenter = null;   // va ricalcolato nel nuovo spazio
             }
 
             // L'ancora vive sotto il rig, che è scalato di 1/scalaMondo. Senza
@@ -176,13 +185,51 @@
             const k = (this.xr.rig && this.xr.rig.scale.x) || 1;
             const base = model.userData._xrHold.scale;
 
-            model.position.set(GRIP.x, GRIP.y, GRIP.z);
             model.rotation.set(
                 GRIP.rx * Math.PI / 180,
                 GRIP.ry * Math.PI / 180,
                 GRIP.rz * Math.PI / 180
             );
             model.scale.copy(base).multiplyScalar(1 / k);
+
+            model.position.copy(this._centeringOffset(model, anchor, k));
+        },
+
+        /**
+         * Posizione da dare all'ORIGINE del modello perché il suo **centro
+         * visibile** cada su GRIP.
+         *
+         * Non è un raffinamento: l'origine di molti GLB non sta sulla geometria.
+         * `remote.glb` ha il centro visibile a circa 0,85 m dalla propria origine,
+         * quindi mettere l'origine al polso spedisce il telecomando visibile
+         * quasi un metro più in là — fuori dal campo visivo. È lo stesso motivo
+         * per cui HoldableSystem calcola `visibleCenterLocal` (core, righe
+         * 380-385): ignorarlo era il vero difetto, non il calcolo sulla camera.
+         *
+         * Misurato invece che dedotto: si azzera la posizione, si guarda dove
+         * finisce il bounding box e si corregge. Vale per qualunque modello, senza
+         * sapere nulla della sua gerarchia interna. Il risultato è memorizzato,
+         * perché dipende solo da rotazione e scala.
+         */
+        _centeringOffset: function (model, anchor, k) {
+            const THREE = window.THREE;
+            const cached = model.userData._xrHoldCenter;
+            if (cached && cached.k === k) return cached.pos;
+
+            model.position.set(0, 0, 0);
+            model.updateWorldMatrix(true, true);
+
+            const box = new THREE.Box3().setFromObject(model);
+            const pos = new THREE.Vector3(GRIP.x, GRIP.y, GRIP.z);
+
+            if (!box.isEmpty()) {
+                const centerWorld = box.getCenter(new THREE.Vector3());
+                const centerLocal = anchor.worldToLocal(centerWorld);
+                pos.sub(centerLocal);
+            }
+
+            model.userData._xrHoldCenter = { k, pos };
+            return pos;
         },
 
         _restore: function (model) {
