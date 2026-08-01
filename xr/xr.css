@@ -114,3 +114,70 @@
 
 /* Il menu a tendina nativo rende su fondo chiaro: le option vanno forzate. */
 .xr-height select option { color: #111; background: #fff; }
+
+/* --- Log XR ---------------------------------------------------------------
+   Va letto dal visore dopo essere usciti dalla sessione: dentro l'immersivo la
+   console non è raggiungibile senza cavo e developer mode. */
+
+.xr-log-btn {
+    padding: 8px 16px;
+    border: 0;
+    border-radius: 999px;
+    font: 500 13px/1 system-ui, -apple-system, Segoe UI, sans-serif;
+    color: #fff;
+    background: rgba(30, 34, 42, .88);
+    min-height: 48px;
+    cursor: pointer;
+    box-shadow: 0 3px 14px rgba(0, 0, 0, .4);
+    backdrop-filter: blur(6px);
+}
+
+.xr-log-btn:hover { background: rgba(48, 54, 64, .92); }
+
+.xr-log-panel {
+    position: fixed;
+    inset: 6vh 5vw auto 5vw;
+    max-height: 70vh;
+    z-index: 2147483001;
+
+    display: flex;
+    flex-direction: column;
+    border-radius: 14px;
+    overflow: hidden;
+
+    color: #e8eef5;
+    background: rgba(16, 19, 24, .96);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, .55);
+}
+
+.xr-log-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: rgba(255, 255, 255, .06);
+    font: 600 15px/1 system-ui, -apple-system, Segoe UI, sans-serif;
+}
+
+.xr-log-head strong { flex: 1; }
+
+.xr-log-head button {
+    padding: 8px 14px;
+    min-height: 40px;
+    border: 1px solid rgba(255, 255, 255, .25);
+    border-radius: 8px;
+    font: 500 13px/1 system-ui, sans-serif;
+    color: #fff;
+    background: rgba(255, 255, 255, .08);
+    cursor: pointer;
+}
+
+.xr-log-list {
+    overflow: auto;
+    padding: 10px 16px 16px;
+    font: 400 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.xr-log-row { padding: 2px 0; border-bottom: 1px solid rgba(255, 255, 255, .05); word-break: break-word; }
+.xr-log-warn { color: #ffd88a; }
+.xr-log-error { color: #ff9b9b; }

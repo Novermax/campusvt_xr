@@ -49,6 +49,9 @@
      */
     const DEFAULT_WORLD_SCALE = 1.25;
 
+    /** Azzurro chiaro dello sfondo in sessione. Vedi `_applySkyBackground`. */
+    const SKY_COLOR = 0xbfe0f5;
+
     /** Regolazione dal vivo col thumbstick: soglia, velocità, granularità del feedback. */
     const STICK_DEADZONE = 0.2;
     const SCALE_RATE_PER_SEC = 0.4;
@@ -216,6 +219,7 @@
                 session.addEventListener('end', this._onSessionEnd.bind(this), { once: true });
 
                 this._suspendTouchSystem();
+                this._applySkyBackground();
                 this._placeRigAtCamera();
                 if (window.XRInput) window.XRInput.init(this);
 
@@ -247,6 +251,7 @@
             this.persistWorldScale();
             // Prima dei controller, poi il rig: sono suoi figli.
             if (window.XRInput) window.XRInput.dispose();
+            this._restoreBackground();
             this._detachRig();
             this._restoreTouchSystem();
             // Il loop resta nostro (setAnimationLoop continua a girare via rAF):
@@ -608,6 +613,31 @@
             this.rig.position.y = this._rigBaseY + delta;
             this.rig.updateMatrixWorld(true);
             console.log(`[XR] Altezza calibrata: misurata ${measured.toFixed(2)} m → richiesta ${target.toFixed(2)} m (correzione ${delta >= 0 ? '+' : ''}${delta.toFixed(2)} m).`);
+        },
+
+        /**
+         * Sfondo azzurro chiaro al posto del nero.
+         *
+         * `Scene3D.initScene` imposta `scene.background = null`: sul desktop è
+         * corretto, perché il canvas è trasparente e sotto c'è il gradiente CSS
+         * della pagina. In VR non c'è nessuna pagina sotto, e uno sfondo nullo
+         * diventa vuoto nero — sgradevole e disorientante, perché toglie ogni
+         * riferimento all'orizzonte.
+         */
+        _applySkyBackground: function () {
+            const S = window.Scene3D;
+            const THREE = window.THREE;
+            if (!S || !S.scene) return;
+            this._prevBackground = S.scene.background;
+            S.scene.background = new THREE.Color(SKY_COLOR);
+        },
+
+        _restoreBackground: function () {
+            const S = window.Scene3D;
+            if (!S || !S.scene) return;
+            if (S.scene.background && S.scene.background.isColor) S.scene.background.dispose?.();
+            S.scene.background = this._prevBackground !== undefined ? this._prevBackground : null;
+            this._prevBackground = undefined;
         },
 
         /**

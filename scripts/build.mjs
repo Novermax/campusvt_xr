@@ -80,7 +80,11 @@ const DROP_STYLE_PATTERNS = [/^css\/editor\.css/];
 
 const XR_STYLES = ['xr/xr.css'];
 // XRButton e XRInput prima di XRSession: quest'ultimo li usa a init e a sessione avviata.
-const XR_SCRIPTS = ['xr/XRButton.js', 'xr/XRLocomotion.js', 'xr/XRHold.js', 'xr/XRInput.js', 'xr/XRSession.js'];
+// XRLog per primo: intercetta la console, deve esserci prima che gli altri parlino.
+const XR_SCRIPTS = [
+    'xr/XRLog.js', 'xr/XRButton.js', 'xr/XRLocomotion.js',
+    'xr/XRHold.js', 'xr/XRInput.js', 'xr/XRSession.js',
+];
 
 /**
  * Cache-buster sui file XR, calcolato dal contenuto.

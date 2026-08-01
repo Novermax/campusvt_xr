@@ -62,6 +62,9 @@
             document.body.appendChild(bar);
             this.bar = bar;
 
+            // Il log va letto uscendo dalla sessione, quindi vive qui sulla 2D.
+            if (window.XRLog) window.XRLog.mount(bar);
+
             xrSession.on('enter', () => this._setState(true));
             xrSession.on('exit', () => this._setState(false));
             // La scala si può tarare col thumbstick dentro la sessione: al ritorno

@@ -50,7 +50,11 @@
          */
         attach: function (xrSession, xrInput) {
             const H = window.HoldableSystem;
-            if (!H || this._orig || typeof H.animatePick !== 'function') return;
+            // Le vie d'uscita vanno dette: senza, un aggancio mancato si
+            // manifesta solo come "l'oggetto vola via" e non si sa perché.
+            if (!H) { console.warn('[XRHold] HoldableSystem assente: aggancio non installato.'); return; }
+            if (typeof H.animatePick !== 'function') { console.warn('[XRHold] animatePick assente: aggancio non installato.'); return; }
+            if (this._orig) { console.warn('[XRHold] già agganciato, salto.'); return; }
 
             this.xr = xrSession;
             this.input = xrInput;
@@ -66,7 +70,7 @@
                 if (!inXR()) return self._origPick(model, config, onComplete);
                 self._placeInHand(model);
                 model.userData.pickAnimationProgress = 1;
-                console.log(`[XRHold] "${model.name}" agganciato alla mano.`);
+                console.log(`[XRHold] "${model.name}" agganciato a: ${self.anchorParentName}`);
                 if (onComplete) onComplete();
             };
 
@@ -89,13 +93,15 @@
             // Restituisce al grafo originale gli oggetti che avevamo spostato:
             // altrimenti alla vista desktop resterebbero appesi a un'ancora
             // rimossa insieme al rig.
-            (this.input ? this.input.sources : []).forEach((s) => {
-                const a = s._holdAnchor;
+            const anchors = (this.input ? this.input.sources : []).map((s) => s._holdAnchor);
+            if (this._head) anchors.push(this._head);
+            anchors.forEach((a) => {
                 if (!a) return;
                 [...a.children].forEach((m) => this._restore(m));
                 if (a.parent) a.parent.remove(a);
-                s._holdAnchor = null;
             });
+            (this.input ? this.input.sources : []).forEach((s) => { s._holdAnchor = null; });
+            this._head = null;
 
             this.active = false;
         },
@@ -130,12 +136,29 @@
             return s._holdAnchor;
         },
 
-        _placeInHand: function (model) {
+        /**
+         * Ancora di ripiego davanti alla testa, usata quando nessuna mano è
+         * tracciata. Non è una comodità: senza, l'oggetto resterebbe in balia del
+         * calcolo di core, che in VR lo scaglia a metri di distanza. Meglio
+         * averlo davanti agli occhi che non sapere dove sia finito.
+         */
+        _headAnchor: function () {
             const THREE = window.THREE;
-            const s = this._pickSource();
-            if (!s) return;                       // nessuna mano: lascia dov'è
+            const S = window.Scene3D;
+            if (!this._head) {
+                this._head = new THREE.Group();
+                this._head.name = 'XRHoldAnchorHead';
+                this._head.position.set(0.18, -0.22, -0.45);   // in basso a destra
+            }
+            if (this._head.parent !== S.camera) S.camera.add(this._head);
+            this.anchorParentName = 'testa (nessuna mano tracciata)';
+            return this._head;
+        },
 
-            const anchor = this._anchorFor(s);
+        _placeInHand: function (model) {
+            const s = this._pickSource();
+            const anchor = s ? this._anchorFor(s) : this._headAnchor();
+            if (!anchor) return;
 
             if (model.parent !== anchor) {
                 if (!model.userData._xrHold) {
