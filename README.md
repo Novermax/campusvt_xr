@@ -99,6 +99,33 @@ identica.
 
 Stato in qualunque momento: `XRSession.debugInfo()` dalla console.
 
+#### Scala del mondo
+
+I modelli sono in scala reale — `a500.glb` è alto 2,80 m, `pulpito.glb` 1,27 m —
+e nessuno viene riscalato al caricamento. Se però la macchina appare
+miniaturizzata rispetto a come la si percepisce dal vero, il rapporto fra
+operatore e macchina va corretto.
+
+La correzione si applica al **rig**, non ai modelli: scalare i modelli
+romperebbe le posizioni e le animazioni scritte nei tutorial e cambierebbe anche
+la vista desktop. Scalando il rig si tocca solo l'osservatore — posa della testa
+e distanza interpupillare — e il mondo appare più grande in proporzione.
+
+`rig.scale = 1 / scalaMondo`. Con scala 1,3 gli occhi stanno a 1,75 / 1,3 = 1,35
+unità contro una macchina di 2,80: come stare davanti a una macchina reale di
+3,64 m.
+
+Si regola con lo slider accanto al pulsante VR, oppure **dal vivo dentro la
+sessione col thumbstick destro su/giù** — che è il modo pratico per trovare il
+valore giusto, senza uscire e rientrare a ogni tentativo. Una tacca aptica ogni
+0,1 dà il senso della granularità. Il valore raggiunto è persistito e lo slider
+lo rispecchia all'uscita.
+
+Da console: `XRSession.setWorldScale(1.3)`.
+
+> La lettura del thumbstick **non** è il layer di input della milestone 3: legge
+> un solo asse, per la taratura.
+
 #### Altezza dell'operatore
 
 I modelli sono in scala reale — `a500.glb` è alto 2,80 m, `pulpito.glb` 1,27 m —

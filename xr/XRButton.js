@@ -55,14 +55,62 @@
             const bar = document.createElement('div');
             bar.className = 'xr-bar';
             bar.appendChild(el);
-            // Sempre presente, anche dove immersive-vr manca: l'impostazione è
-            // persistita, quindi si può preparare da desktop e poi indossare il visore.
+            // Sempre presenti, anche dove immersive-vr manca: le impostazioni sono
+            // persistite, quindi si preparano da desktop e poi si indossa il visore.
+            bar.appendChild(this._buildScaleSlider(xrSession));
             bar.appendChild(this._buildHeightPicker(xrSession));
             document.body.appendChild(bar);
             this.bar = bar;
 
             xrSession.on('enter', () => this._setState(true));
             xrSession.on('exit', () => this._setState(false));
+            // La scala si può tarare col thumbstick dentro la sessione: al ritorno
+            // lo slider deve mostrare il valore effettivamente raggiunto.
+            xrSession.on('scale', () => this._syncScale());
+        },
+
+        /**
+         * Scala del mondo. Slider e non menu a tendina: serve per fare prove, e il
+         * valore giusto si trova per tentativi.
+         */
+        _buildScaleSlider: function (xrSession) {
+            const wrap = document.createElement('label');
+            wrap.className = 'xr-scale';
+            wrap.title = 'Quanto appare grande la macchina.\n'
+                + 'Regolabile anche dentro la sessione, col thumbstick destro su/giù.';
+
+            const txt = document.createElement('span');
+            txt.textContent = 'Scala mondo';
+            wrap.appendChild(txt);
+
+            const input = document.createElement('input');
+            input.type = 'range';
+            input.min = '0.5';
+            input.max = '2.5';
+            input.step = '0.05';
+            input.value = String(xrSession.getWorldScale());
+            wrap.appendChild(input);
+
+            const out = document.createElement('output');
+            out.textContent = (+input.value).toFixed(2) + '×';
+            wrap.appendChild(out);
+
+            input.addEventListener('input', () => {
+                out.textContent = (+input.value).toFixed(2) + '×';
+                xrSession.setWorldScale(parseFloat(input.value));
+            });
+
+            this._scaleInput = input;
+            this._scaleOutput = out;
+            return wrap;
+        },
+
+        /** Riallinea lo slider al valore corrente, dopo la taratura col thumbstick. */
+        _syncScale: function () {
+            if (!this._scaleInput) return;
+            const s = this.xr.getWorldScale();
+            this._scaleInput.value = String(s);
+            this._scaleOutput.textContent = s.toFixed(2) + '×';
         },
 
         /**

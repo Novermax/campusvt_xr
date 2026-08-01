@@ -31,6 +31,18 @@
     /** Chiave localStorage dell'altezza occhi scelta dall'operatore. */
     const EYE_HEIGHT_KEY = 'cvtxr.eyeHeight';
 
+    /** Chiave localStorage del fattore di scala del mondo. */
+    const WORLD_SCALE_KEY = 'cvtxr.worldScale';
+
+    /** Limiti del fattore di scala: oltre questi la stereoscopia diventa sgradevole. */
+    const SCALE_MIN = 0.5;
+    const SCALE_MAX = 4.0;
+
+    /** Regolazione dal vivo col thumbstick: soglia, velocità, granularità del feedback. */
+    const STICK_DEADZONE = 0.2;
+    const SCALE_RATE_PER_SEC = 0.4;
+    const HAPTIC_STEP = 0.1;
+
     /** Frame di posa da mediare prima di calibrare, ~0,3 s a 72 Hz. */
     const CALIBRATION_SAMPLES = 20;
 
@@ -58,10 +70,14 @@
         _inFrame: false,
         _cameraRestore: null,
         _touchWasEnabled: null,
-        _listeners: { enter: [], exit: [] },
+        _listeners: { enter: [], exit: [], scale: [] },
         _rigBaseY: 0,
         _headSamples: [],
         _calibrated: false,
+        _lastTuneTime: null,
+        _lastHapticStep: null,
+        _worldScale: null,
+        _tuning: false,
         /** Ultima altezza occhi misurata dal visore, in metri. Diagnostica. */
         measuredEyeHeight: null,
 
@@ -212,6 +228,11 @@
         _onSessionEnd: function () {
             this.isPresenting = false;
             this.session = null;
+            this._tuning = false;
+            this._lastTuneTime = null;
+            // Se la sessione finisce con lo stick ancora premuto, il salvataggio
+            // al rilascio non arriva mai: salviamo qui.
+            this.persistWorldScale();
             this._detachRig();
             this._restoreTouchSystem();
             // Il loop resta nostro (setAnimationLoop continua a girare via rAF):
@@ -249,8 +270,11 @@
                 original();
             };
 
-            S.renderer.setAnimationLoop(function () {
-                if (self.isPresenting) self._sampleHead();
+            S.renderer.setAnimationLoop(function (time) {
+                if (self.isPresenting) {
+                    self._pollScaleTuning(time);
+                    self._sampleHead();
+                }
                 self._inFrame = true;
                 try { original(); } finally { self._inFrame = false; }
             });
@@ -347,6 +371,9 @@
             // si applica come scostamento da qui.
             this._rigBaseY = this.rig.position.y;
 
+            // La scala va applicata dopo il posizionamento: tocca solo l'osservatore.
+            this._applyWorldScale(this.getWorldScale());
+
             // Ruota il rig perché il suo -Z (avanti) segua la direzione orizzontale
             // di sguardo della camera desktop.
             const horiz = Math.hypot(dir.x, dir.z);
@@ -354,6 +381,126 @@
 
             this.rig.updateMatrixWorld(true);
             console.log(`[XR] Rig posizionato a (${this.rig.position.x.toFixed(2)}, ${this.rig.position.y.toFixed(2)}, ${this.rig.position.z.toFixed(2)})`);
+        },
+
+        // =====================================================================
+        // Scala del mondo
+        // =====================================================================
+
+        /*
+         * "Tutto sembra miniaturizzato" e "sono troppo alto" sono lo stesso
+         * sintomo: il rapporto fra operatore e macchina è sbagliato. Abbassare
+         * solo gli occhi non lo risolve — diventi una persona bassa in un mondo
+         * piccolo.
+         *
+         * La correzione si applica al RIG, non ai modelli. Scalare i modelli
+         * romperebbe le posizioni e le animazioni scritte nei tutorial e
+         * cambierebbe anche la vista desktop. Scalando il rig si tocca solo
+         * l'osservatore: la posa della testa e la distanza interpupillare vengono
+         * moltiplicate, e il mondo appare più grande in proporzione.
+         *
+         * `rig.scale = 1 / worldScale`: scala del mondo 1,3 significa rig a 0,769,
+         * quindi occhi a 1,75 / 1,3 = 1,35 unità contro una macchina di 2,80 —
+         * come stare davanti a una macchina reale di 3,64 m.
+         */
+
+        /**
+         * @returns {number} fattore di ingrandimento del mondo, 1 = nativo.
+         *
+         * Il valore vivo sta in memoria, non in localStorage: la regolazione col
+         * thumbstick passa di qui a ogni frame, e rileggere/riscrivere lo storage
+         * 72 volte al secondo sarebbe sia lento (è sincrono) sia impreciso —
+         * l'arrotondamento della serializzazione si accumulerebbe a ogni frame.
+         */
+        getWorldScale: function () {
+            if (this._worldScale === null) {
+                let n = NaN;
+                try { n = parseFloat(localStorage.getItem(WORLD_SCALE_KEY)); } catch (e) { /* storage negato */ }
+                this._worldScale = Number.isFinite(n) && n >= SCALE_MIN && n <= SCALE_MAX ? n : 1;
+            }
+            return this._worldScale;
+        },
+
+        /**
+         * @param {number} scale >1 ingrandisce il mondo, <1 lo rimpicciolisce.
+         * @param {boolean} [persist=true] passare false durante una regolazione
+         *        continua; poi chiamare `persistWorldScale()` una volta a fine corsa.
+         */
+        setWorldScale: function (scale, persist = true) {
+            const s = Math.min(SCALE_MAX, Math.max(SCALE_MIN, Number(scale) || 1));
+            this._worldScale = s;
+            if (persist) this.persistWorldScale();
+            this._applyWorldScale(s);
+            this._emit('scale');
+            return s;
+        },
+
+        /** Salva la scala corrente. Separato da setWorldScale per non toccare
+         *  localStorage dentro il render loop. */
+        persistWorldScale: function () {
+            try { localStorage.setItem(WORLD_SCALE_KEY, this.getWorldScale().toFixed(3)); } catch (e) { /* storage negato */ }
+        },
+
+        _applyWorldScale: function (s) {
+            if (!this.rig) return;
+            this.rig.scale.setScalar(1 / s);
+            this.rig.updateMatrixWorld(true);
+            // L'altezza misurata è in unità scena e dipende dalla scala:
+            // va ricalibrata, altrimenti resta tarata sul fattore precedente.
+            this._calibrated = false;
+            this._headSamples = [];
+        },
+
+        /**
+         * Regolazione dal vivo col thumbstick destro, su/giù.
+         *
+         * NON è il layer di input della milestone 3: legge soltanto un asse per
+         * permettere di tarare la scala mentre la si guarda, senza uscire e
+         * rientrare dalla sessione a ogni tentativo. Il valore raggiunto viene
+         * persistito, così a fine prova si legge dal selettore sulla pagina 2D.
+         *
+         * @param {number} time timestamp del frame XR, in ms.
+         */
+        _pollScaleTuning: function (time) {
+            const session = this.session;
+            if (!session || !session.inputSources) return;
+
+            const dt = this._lastTuneTime === null ? 0 : Math.min(0.1, (time - this._lastTuneTime) / 1000);
+            this._lastTuneTime = time;
+            if (dt <= 0) return;
+
+            let axis = 0;
+            let source = null;
+            for (const src of session.inputSources) {
+                if (src.handedness !== 'right' || !src.gamepad) continue;
+                const a = src.gamepad.axes;
+                // Mapping xr-standard: axes[2]/[3] sono il thumbstick; su alcuni
+                // runtime più vecchi il primo asse valido è axes[1].
+                const v = a.length >= 4 ? a[3] : (a.length >= 2 ? a[1] : 0);
+                if (Math.abs(v) > STICK_DEADZONE) { axis = v; source = src; }
+                break;
+            }
+            if (!axis) {
+                // Stick rilasciato: è il momento di salvare, una volta sola.
+                if (this._tuning) { this._tuning = false; this.persistWorldScale(); }
+                return;
+            }
+            this._tuning = true;
+
+            // Stick in avanti (valore negativo) = mondo più grande.
+            const dir = -Math.sign(axis);
+            const amount = (Math.abs(axis) - STICK_DEADZONE) / (1 - STICK_DEADZONE);
+            const next = this.getWorldScale() + dir * amount * SCALE_RATE_PER_SEC * dt;
+            const applied = this.setWorldScale(next, false);
+
+            // Tacca aptica ogni 0,1: dà il senso della granularità senza vedere numeri.
+            const step = Math.round(applied / HAPTIC_STEP);
+            if (step !== this._lastHapticStep) {
+                this._lastHapticStep = step;
+                const act = source.gamepad.hapticActuators && source.gamepad.hapticActuators[0];
+                if (act && act.pulse) { try { act.pulse(0.3, 20); } catch (e) { /* non supportato */ } }
+                console.log(`[XR] Scala mondo: ${applied.toFixed(2)}×`);
+            }
         },
 
         // =====================================================================
@@ -475,7 +622,7 @@
         // Eventi
         // =====================================================================
 
-        /** @param {'enter'|'exit'} evt */
+        /** @param {'enter'|'exit'|'scale'} evt */
         on: function (evt, fn) {
             if (this._listeners[evt]) this._listeners[evt].push(fn);
         },
@@ -520,8 +667,9 @@
                 referenceSpace: this.referenceSpaceType,
                 loopOwned: this._loopOwned,
                 rig: this.rig ? this.rig.position.toArray().map((n) => +n.toFixed(2)) : null,
-                altezzaOcchiMisurata: this.measuredEyeHeight ? +this.measuredEyeHeight.toFixed(2) + ' m' : 'non ancora misurata',
-                altezzaOcchiRichiesta: this.getEyeHeight() === null ? 'automatica' : this.getEyeHeight().toFixed(2) + ' m',
+                scalaMondo: this.getWorldScale().toFixed(2) + '×',
+                altezzaOcchiMisurata: this.measuredEyeHeight ? +this.measuredEyeHeight.toFixed(2) + ' unità' : 'non ancora misurata',
+                altezzaOcchiRichiesta: this.getEyeHeight() === null ? 'automatica' : this.getEyeHeight().toFixed(2) + ' unità',
                 triangoli: S?.renderer?.info?.render?.triangles ?? null,
                 drawCalls: S?.renderer?.info?.render?.calls ?? null,
             };
