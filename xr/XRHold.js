@@ -65,14 +65,6 @@
      */
     let HOLD_HAND = 'left';
 
-    /**
-     * Quanto si aspetta prima di considerare persa la mano dell'impugnatura.
-     * Le mani tracciate si disconnettono appena escono dal campo delle camere —
-     * succede di continuo, basta abbassare il braccio. Senza questa attesa
-     * l'oggetto sfarfallerebbe fra mano e ripiego davanti alla testa.
-     */
-    const HAND_GRACE_MS = 1500;
-
     const XRHold = {
         active: false,
         xr: null,
@@ -144,7 +136,6 @@
             });
             this._anchor = null;
             this._head = null;
-            this._handSource = null;
 
             this.active = false;
         },
@@ -161,26 +152,9 @@
          */
         _pickSource: function () {
             const src = this.input ? this.input.sources : [];
-            const now = performance.now();
-
-            // Connessa adesso: la lateralità arriva dall'evento, non dall'indice.
-            const live = src.find((s) => s.inputSource && s.hand === HOLD_HAND);
-            if (live) { this._handSource = live; this._handSeenAt = now; return live; }
-
-            // Sparita da poco: sfarfallio, non un vero abbandono. L'oggetto resta
-            // dov'è invece di rimbalzare fra mano e testa a ogni battito.
-            //
-            // Vale solo se quella sorgente è ANCORA scollegata. Se nel frattempo
-            // si è riconnessa portando l'altra lateralità — succede: gli indici
-            // seguono l'ordine di connessione, non la mano — la tolleranza
-            // decade all'istante, altrimenti sarebbe la strada per cui il
-            // telecomando finiva nella destra.
-            const remembered = this._handSource;
-            if (remembered && !remembered.inputSource && now - (this._handSeenAt || 0) < HAND_GRACE_MS) {
-                return remembered;
-            }
-
-            return null;
+            // La lateralità arriva dall'evento di connessione, non dall'indice
+            // della sorgente. Nessun ripiego "prendi quella che c'è".
+            return src.find((s) => s.inputSource && s.hand === HOLD_HAND) || null;
         },
 
         /**
@@ -195,12 +169,6 @@
                 this._anchor = new THREE.Group();
                 this._anchor.name = 'XRHoldAnchor';
             }
-
-            // Sorgente non connessa: siamo nella finestra di tolleranza dello
-            // sfarfallio. Riagganciare adesso significherebbe appendersi ai
-            // giunti fermi — o peggio, al controller di un indice che nel
-            // frattempo è passato all'altra mano. Si lascia tutto com'è.
-            if (!s.inputSource && this._anchor.parent) return this._anchor;
 
             const joints = s.handObj && s.handObj.joints;
             let parent = s.controller;
@@ -223,10 +191,35 @@
         },
 
         /**
-         * Ancora di ripiego davanti alla testa, usata quando nessuna mano è
-         * tracciata. Non è una comodità: senza, l'oggetto resterebbe in balia del
-         * calcolo di core, che in VR lo scaglia a metri di distanza. Meglio
-         * averlo davanti agli occhi che non sapere dove sia finito.
+         * L'oggetto resta dov'è quando la mano vincolata smette di essere
+         * tracciata.
+         *
+         * L'ancora è appesa a un GIUNTO, e i giunti appartengono a una sorgente
+         * indicizzata per ordine di connessione. Se quell'indice viene riusato
+         * dall'altra mano — sparisci con entrambe, torna con la destra — il
+         * telecomando comincia a seguire la destra, per giunta con la posa
+         * dell'altra mano: si vede il retro. Lasciarlo appeso lì è il difetto,
+         * non la soluzione.
+         *
+         * Si stacca quindi l'ancora dal giunto e la si appende al rig
+         * conservando la posa mondo (`attach`, non `add`): l'oggetto resta
+         * immobile dove la mano l'ha lasciato, non passa a nessuno, e quando la
+         * mano vincolata torna se lo riprende dal palmo.
+         */
+        _freezeAnchor: function () {
+            const rig = this.xr && this.xr.rig;
+            if (!this._anchor || !this._anchor.parent || !rig) return;
+            if (this._anchor.parent === rig) return;
+            rig.attach(this._anchor);
+            this.anchorParentName = `${HOLD_HAND} non tracciata: fermo dov'era`;
+        },
+
+        /**
+         * Ancora di ripiego davanti alla testa. Vale solo per un oggetto che in
+         * mano non c'è MAI stato: senza, resterebbe in balia del calcolo di
+         * core, che in VR lo scaglia a metri di distanza. Un oggetto già preso
+         * non passa mai di qui — verrebbe strappato dalla mano per essere
+         * incollato davanti agli occhi, con la posa sbagliata.
          */
         _headAnchor: function () {
             const THREE = window.THREE;
@@ -243,6 +236,15 @@
 
         _placeInHand: function (model) {
             const s = this._pickSource();
+
+            // Mano vincolata assente: l'oggetto non cambia mano e non finisce
+            // davanti alla faccia. Resta immobile dove l'ha lasciato, e la posa
+            // non va ricalcolata — è congelata insieme all'ancora.
+            if (!s && this._anchor && model.parent === this._anchor) {
+                this._freezeAnchor();
+                return;
+            }
+
             const anchor = s ? this._anchorFor(s) : this._headAnchor();
             if (!anchor) return;
 
@@ -367,8 +369,6 @@
         setHand: function (hand) {
             if (hand !== 'left' && hand !== 'right') return HOLD_HAND;
             HOLD_HAND = hand;
-            this._handSource = null;
-            this._handSeenAt = 0;
             this._invalidate();
             console.log(`[XRHold] Mano dell'impugnatura: ${HOLD_HAND}`);
             return HOLD_HAND;

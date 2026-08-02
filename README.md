@@ -133,9 +133,9 @@ entro 12 cm: più larga, con i molti comandi ravvicinati del pulpito, resterebbe
 accesa di continuo. Il lampo non è ridondante rispetto alla vibrazione — con le
 mani l'aptica non esiste.
 
-Tolleranza di contatto 2,2 cm, con uscita a 4 cm: senza isteresi un dito che
+Tolleranza di contatto **1 cm**, con uscita a 2,2: senza isteresi un dito che
 trema a filo del bordo farebbe scattare il pulsante decine di volte al secondo.
-Tarabile a caldo con `XRInput.setPokeRadius(0.03)`.
+Tarabile a caldo con `XRInput.setPokeRadius(0.02)`.
 
 ##### Dove toccare: un anello piccolo, dello stesso giallo del dito
 
@@ -158,20 +158,29 @@ Il contatto secco chiede una precisione che senza aptica non si ha: il dito
 arriva a un centimetro dal pulsante e non succede niente, perché nulla dice dove
 finisce l'aria. Da qui l'assistenza magnetica.
 
-Entro **3,2 cm** dall'`element` che lo step sta chiedendo, il bersaglio comincia
+Entro **2,5 cm** dall'`element` che lo step sta chiedendo, il bersaglio comincia
 a tirare a sé la sfera gialla verso il proprio punto di interazione — lo stesso
 punto che l'anello indica. L'attrazione cresce con continuità (curva smoothstep)
-fino all'80%: è un accompagnamento, mai un teletrasporto.
+fino al **95%**: è un accompagnamento, mai un teletrasporto, ma alla fine la
+sfera è addosso al punto, non nei pressi.
 
 Il campo è corto di proposito. Dev'essere guidato l'ultimo tratto
 dell'avvicinamento, non tutto il gesto: con 9 cm il cursore partiva verso il
 bersaglio mentre la mano era ancora per aria, e l'aggancio arrivava troppo presto
 per somigliare a un contatto.
 
+**La mano va dove va la sfera.** La sfera è la punta del dito, non un puntatore a
+sé: tirarla verso il bersaglio lasciando indietro la mano spezza proprio
+l'illusione che il magnete deve creare — si vede un pallino che va da una parte e
+una mano che resta dall'altra. Lo stesso scostamento vale quindi per entrambi,
+sempre, in attrazione come in aggancio, e senza inerzia: qualunque
+ammorbidimento diventerebbe una mano che insegue la sfera in ritardo. Solo in
+uscita dalla guida si rientra dolcemente, in una settantina di millisecondi.
+
 La regola che tiene insieme vista e logica: **il contatto si misura sul cursore,
 non sul polpastrello**. Quel che si vede è quel che vale — la sfera arriva sul
 punto e lì il tocco scatta, come un tocco normale. Il bersaglio dello step si
-attiva a **circa 2 cm**, contro 1,6 del contatto secco: la differenza è il
+attiva a **circa 1,5 cm**, contro 1 cm del contatto secco: la differenza è il
 tratto che il dito ha già percorso, visibilmente, dentro il magnete.
 
 Vale **solo per i bersagli `evidenziato`**, cioè per l'element chiesto dallo step
@@ -179,7 +188,7 @@ e per gli oggetti impugnabili già facilitati dalla loro soglia larga. Tutto il
 resto resta alla soglia secca: nessuna scorciatoia inattesa su ciò che il
 tutorial non ha chiesto.
 
-Taratura a caldo: `XRInput.setSnap(0.05, 0.9)` — raggio e forza.
+Taratura a caldo: `XRInput.setSnap(0.04, 0.9)` — raggio e forza.
 `XRInput.setSnap(undefined, 0)` disattiva il magnete e riporta il comportamento
 al contatto secco.
 
@@ -191,9 +200,9 @@ niente di tutto questo: il dito attraversa il comando come aria, e il tocco non
 si sente mai arrivato. L'attrazione da sola non basta, perché è solo un
 indicatore: guida il cursore e poi lo lascia andare.
 
-Al contatto, quindi, **la mano disegnata si ferma**. Resta dov'era nell'istante
-dell'aggancio, e i piccoli movimenti del dito vero non la spostano più: entro
-**2,2 cm** di tolleranza il bersaglio la tiene. Superata quella distanza la mano
+Al contatto, quindi, **la mano disegnata si ferma**. Resta posata sul punto, e i
+piccoli movimenti del dito vero non la spostano più: entro **2 cm** di tolleranza
+il bersaglio la tiene. Superata quella distanza la mano
 torna libera, rientrando sulla posizione vera in circa un decimo di secondo —
 non di scatto.
 
@@ -251,12 +260,18 @@ restano di `HoldableSystem`: `core/` non è toccato.
 **La sinistra è un vincolo, non una preferenza.** Le sorgenti XR sono indicizzate
 per ordine di connessione, non per lateralità: sparendo entrambe le mani e
 tornando solo la destra, questa si riconnette sull'indice che era della sinistra.
-Legarsi alla "prima mano disponibile" — o all'ancora appesa a quell'indice —
-faceva ricomparire il telecomando nella destra. Ora si guarda solo `handedness`,
-l'ancora è **una sola** e segue la mano giusta, e la tolleranza per lo sfarfallio
-vale solo finché quella sorgente resta scollegata: se si riconnette portando
-l'altra mano, decade all'istante. Senza sinistra in vista l'oggetto va davanti
-alla testa, mai nella destra.
+Legarsi alla "prima mano disponibile" faceva ricomparire il telecomando nella
+destra; e non bastava correggere la scelta della sorgente, perché **l'ancora
+resta appesa a un giunto** di quell'indice — che nel frattempo riceve le pose
+dell'altra mano. Il telecomando la seguiva, per giunta con la posa sbagliata: si
+vedeva il retro.
+
+Ora la lateralità si legge solo da `handedness`, l'ancora è **una sola**, e
+quando la mano vincolata non è tracciata l'ancora viene staccata dal giunto e
+appesa al rig **conservando la posa mondo** (`attach`, non `add`): l'oggetto resta
+immobile dove la mano l'ha lasciato, non passa a nessuno, e quando la sinistra
+torna se lo riprende dal palmo. Il ripiego davanti alla testa vale solo per un
+oggetto che in mano non c'è mai stato.
 
 Per il mancino: `XRHold.setHand('right')`. Nessuna logica di runtime deve
 chiamarlo per "seguire" la mano che tocca l'oggetto — è esattamente ciò che

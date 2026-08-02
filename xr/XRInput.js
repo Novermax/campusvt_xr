@@ -38,9 +38,11 @@
      * Stretto di proposito: il bersaglio deve risultare attivabile solo quando
      * il dito ci è davvero sopra. Con 2,2 cm più l'assistenza magnetica larga
      * l'area di attivazione arrivava a quasi 5 cm e i comandi scattavano da
-     * lontano — sensazione di approssimazione, non di contatto.
+     * lontano — sensazione di approssimazione, non di contatto. Con 1,6
+     * scattavano ancora troppo presto (provato sul visore): 1 cm secco, che con
+     * l'assistenza diventa un'attivazione a circa 1,5 cm.
      */
-    let POKE_ENTER = 0.016;
+    let POKE_ENTER = 0.010;
     /** Quanto più larga è l'uscita rispetto all'ingresso. */
     const EXIT_RATIO = 2.2;
     let POKE_EXIT = POKE_ENTER * EXIT_RATIO;
@@ -89,13 +91,15 @@
      * sta chiedendo. Gli altri restano alla soglia secca: nessuna scorciatoia
      * inattesa su ciò che il tutorial non ha chiesto.
      *
-     * Il campo è corto — poco più di 3 cm — perché deve essere l'ultimo tratto
-     * dell'avvicinamento a essere guidato, non tutto il gesto. Con 9 cm il
-     * cursore partiva verso il bersaglio quando la mano era ancora per aria, e
-     * l'aggancio arrivava troppo presto per sembrare un contatto.
+     * Il campo è corto — due centimetri e mezzo — perché deve essere l'ultimo
+     * tratto dell'avvicinamento a essere guidato, non tutto il gesto. Con 9 cm
+     * il cursore partiva verso il bersaglio quando la mano era ancora per aria.
+     *
+     * La forza è quasi piena: il cursore deve finire ADDOSSO al punto, non nei
+     * pressi. A 0,80 restava a un paio di millimetri e si vedeva.
      */
-    let SNAP_RANGE = 0.032;
-    let SNAP_STRENGTH = 0.80;
+    let SNAP_RANGE = 0.025;
+    let SNAP_STRENGTH = 0.95;
 
     /**
      * Aggancio: quanto può vagare il dito prima che la mano torni libera.
@@ -111,11 +115,19 @@
      * dal punto di aggancio, la mano riprende a seguire la vera posizione —
      * non di scatto, ma rientrando in una frazione di secondo.
      */
-    let LATCH_TOLERANCE = 0.022;
+    let LATCH_TOLERANCE = 0.020;
 
-    /** Quanto in fretta la mano rientra sulla posizione vera dopo l'aggancio.
-     *  Frazione di scostamento tolta a ogni frame: a 72 Hz, ~0,1 s. */
-    const LATCH_RELEASE_DECAY = 0.80;
+    /**
+     * Quanto in fretta la mano rientra sulla posizione vera quando smette di
+     * essere guidata. Frazione di scarto recuperata a ogni frame: a 72 Hz si
+     * arriva in una settantina di millisecondi.
+     *
+     * Vale SOLO in uscita. Finché il magnete o l'aggancio stanno guidando, lo
+     * scostamento è esatto e senza inerzia: qualunque ammorbidimento si
+     * tradurrebbe in una mano che insegue la sfera con un ritardo visibile —
+     * il difetto che questo codice esiste per togliere.
+     */
+    const GUIDE_RELEASE = 0.45;
 
     /** Giunti di una XRHand. Serve a dimensionare la mesh istanziata di ripiego. */
     const HAND_JOINT_COUNT = 25;
@@ -280,8 +292,10 @@
                 engaged: null,      // mesh attualmente "premuta", per l'isteresi
                 near: null,
                 snapW: 0,           // forza dell'attrazione in corso, 0..1
-                latch: null,        // { cand, tip, point } se la mano è agganciata
-                holdOffset: new THREE.Vector3(),  // scostamento mondo della mano disegnata
+                latch: null,        // { cand, live, at, point } se la mano è agganciata
+                guided: new THREE.Vector3(),      // dove va mostrato il polpastrello, in mondo
+                holdOffset: new THREE.Vector3(),  // scostamento fra dito vero e dito mostrato
+                _holdTarget: new THREE.Vector3(), // scostamento a cui tendere
                 flashUntil: 0,
             };
 
@@ -589,26 +603,57 @@
             s.latch = null;
         },
 
-        /**
-         * Calcola lo scostamento della mano disegnata per questo frame.
-         * Agganciati vale `puntoDiAggancio - ditoVero`, così la mano resta dov'era;
-         * liberi rientra verso zero.
-         */
+        /** L'aggancio regge ancora? Sotto-stato del contatto, muore con lui. */
         _updateLatch: function (s) {
-            // L'aggancio è un sotto-stato del contatto: finito quello, finisce.
-            if (s.latch && !s.engaged) this._unlatch(s);
+            if (!s.latch) return;
+            if (!s.engaged) return this._unlatch(s);
+            if (s.latch.live.distanceTo(s.latch.at) > LATCH_TOLERANCE) this._unlatch(s);
+        },
+
+        /**
+         * Dove va MOSTRATO il polpastrello, e di conseguenza dove va disegnata
+         * la mano.
+         *
+         * Sfera gialla e mano sono la stessa cosa: la sfera è la punta del dito,
+         * non un puntatore a sé. Muoverla verso il bersaglio lasciando indietro
+         * la mano — com'era all'inizio — spezza proprio l'illusione che il
+         * magnete dovrebbe creare: si vede un pallino che va da una parte e una
+         * mano che resta dall'altra. Quindi lo stesso scostamento vale per
+         * entrambi, sempre: durante l'attrazione e durante l'aggancio.
+         *
+         * Il dito VERO non si sposta mai: la logica di contatto continua a
+         * misurare quello. Qui si decide solo cosa si vede.
+         */
+        _guide: function (s, near, dist, nearTip) {
+            const ref = s.latch ? s.latch.live : (nearTip || s.tip);
+            let guiding = false;
+            s.snapW = 0;
 
             if (s.latch) {
-                const drift = s.latch.live.distanceTo(s.latch.at);
-                if (drift > LATCH_TOLERANCE) {
-                    this._unlatch(s);
-                } else {
-                    s.holdOffset.copy(s.latch.at).sub(s.latch.live);
-                    return;
+                // Agganciati il punto è fisso: il polpastrello mostrato resta
+                // posato lì mentre quello vero vaga dentro la tolleranza.
+                s._holdTarget.copy(s.latch.point).sub(ref);
+                s.snapW = 1;
+                guiding = true;
+            } else if (near) {
+                const w = this._assistFor(near, dist);
+                if (w > 0) {
+                    near.box.clampPoint(ref, this._tmpB);
+                    s._holdTarget.copy(this._tmpB).sub(ref).multiplyScalar(w);
+                    s.snapW = w;
+                    guiding = true;
                 }
             }
-            s.holdOffset.multiplyScalar(LATCH_RELEASE_DECAY);
-            if (s.holdOffset.lengthSq() < 1e-8) s.holdOffset.set(0, 0, 0);
+
+            if (guiding) {
+                // Esatto, senza inerzia: la mano è dove è la sfera.
+                s.holdOffset.copy(s._holdTarget);
+            } else {
+                // Fuori dalla guida si rientra, non si salta.
+                s.holdOffset.multiplyScalar(1 - GUIDE_RELEASE);
+                if (s.holdOffset.lengthSq() < 1e-10) s.holdOffset.set(0, 0, 0);
+            }
+            s.guided.copy(ref).add(s.holdOffset);
         },
 
         /**
@@ -653,6 +698,7 @@
                     s.cursor.visible = false;
                     s.engaged = null;
                     this._unlatch(s);
+                    this._guide(s, null, Infinity, null);   // la mano rientra
                     this._updateHandVisual(s);
                     continue;
                 }
@@ -676,48 +722,30 @@
                     this._latch(s, hit, hitTip);
                 }
 
-                // Aggancio: la mano disegnata resta ferma finché il dito vero
-                // non esce dalla tolleranza.
-                this._updateLatch(s);
-                this._updateHandVisual(s);
-
                 s.near = near ? near.mesh : null;
                 if (near) hovered = near.mesh;
+
+                // Aggancio e attrazione decidono insieme dove si vede la punta
+                // del dito; la mano ci va dietro, non resta indietro.
+                this._updateLatch(s);
+                this._guide(s, near, dist, nearTip);
+                this._updateHandVisual(s);
 
                 // Il cursore compare solo vicino a un bersaglio: lontano, la mano
                 // deve restare la mano.
                 s.cursor.visible = !!near;
-                s.snapW = 0;
                 if (near) {
-                    const tipRef = nearTip || s.tip;
-                    const w = this._assistFor(near, dist);
-
-                    // Il cursore viene accompagnato verso il punto di
-                    // interazione — il punto del bersaglio più vicino al dito,
-                    // lo stesso che il test di contatto misura e che l'anello
-                    // indica. Con w = 0 resta esattamente sul polpastrello:
-                    // fuori dal campo magnetico nulla cambia.
-                    this._tmpA.copy(tipRef);
-                    if (w > 0) {
-                        near.box.clampPoint(tipRef, this._tmpB);
-                        this._tmpA.lerp(this._tmpB, w);
-                        s.snapW = w;
-                    }
-                    // Agganciati, il cursore sta fermo sul punto: è il segno
-                    // visibile che il bersaglio sta trattenendo il dito.
-                    if (s.latch) { this._tmpA.copy(s.latch.point); s.snapW = 1; }
-
-                    s.cursor.position.copy(this._tmpA);
+                    s.cursor.position.copy(s.guided);
                     this.xr.rig.worldToLocal(s.cursor.position);
                     s.cursor.material.color.setHex(
-                        now < s.flashUntil ? CURSOR_HIT : (w > 0.5 ? CURSOR_SNAP : CURSOR_NEAR)
+                        now < s.flashUntil ? CURSOR_HIT : (s.snapW > 0.5 ? CURSOR_SNAP : CURSOR_NEAR)
                     );
 
                     // Si ingrossa avvicinandosi — è più facile da vedere — e si
                     // richiude mentre il magnete aggancia: la punta torna
                     // sottile proprio quando serve mirare.
                     const t = Math.max(0, 1 - (dist - POKE_ENTER) / NEAR_RANGE);
-                    s.cursor.scale.setScalar(1 + t * (1 - w) * 0.8);
+                    s.cursor.scale.setScalar(1 + t * (1 - s.snapW) * 0.8);
                 }
             }
 
