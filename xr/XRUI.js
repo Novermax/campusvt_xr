@@ -96,11 +96,13 @@
      * guarderebbe di sbieco.
      */
     let TOOLS_SIDE = 1;              // +1 destra, -1 sinistra
-    let TOOLS_X = 0.26;
+    let TOOLS_X = 0.42;
     let TOOLS_Y = -0.26;
     let TOOLS_Z = 0.22;              // verso l'operatore
     let TOOLS_TILT = -45;            // gradi: 0 in piedi, -90 sdraiata
-    let TOOLS_YAW = 26;              // gradi, verso l'operatore
+    // L'imbardata segue lo scostamento: piu' la pulsantiera va di lato, piu'
+    // deve girarsi, o la si guarda di sbieco. A 0,42 la testa sta a ~28°.
+    let TOOLS_YAW = 30;              // gradi, verso l'operatore
 
     /**
      * Quanto il fumetto si sposta a sinistra mentre si lavora.
