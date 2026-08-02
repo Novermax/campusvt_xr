@@ -76,9 +76,31 @@
     const MEDIA_W = 0.52;
     const MEDIA_MAX_H = 0.34;
 
-    /** Pulsanti degli strumenti, in colonna sulla destra. */
+    /** Pulsanti degli strumenti, in colonna al fianco dell'operatore. */
     const TOOL_SIZE = 0.10;
     const TOOL_GAP = 0.016;
+
+    /**
+     * Posa della pulsantiera degli strumenti.
+     *
+     * Non è un cartello da leggere, è una tastiera da premere: il riferimento
+     * giusto non è un pannello a parete ma il **bracciolo di una sedia** —
+     * vicino, in basso, inclinato verso l'alto, dove la mano cade da sola
+     * senza alzare il braccio.
+     *
+     * Verticale come una vetrina costringeva a portare la mano davanti al viso;
+     * del tutto orizzontale sarebbe scomparsa di taglio. La via di mezzo — 45°
+     * — si vede e si preme.
+     *
+     * `TOOLS_YAW` la gira verso l'operatore: stando di lato, altrimenti la si
+     * guarderebbe di sbieco.
+     */
+    let TOOLS_SIDE = 1;              // +1 destra, -1 sinistra
+    let TOOLS_X = 0.26;
+    let TOOLS_Y = -0.26;
+    let TOOLS_Z = 0.22;              // verso l'operatore
+    let TOOLS_TILT = -45;            // gradi: 0 in piedi, -90 sdraiata
+    let TOOLS_YAW = 26;              // gradi, verso l'operatore
 
     /**
      * Quanto il fumetto si sposta a sinistra mentre si lavora.
@@ -170,8 +192,13 @@
             this.anim = this._makeMediaQuad();
             this.root.add(this.anim);
 
+            // Pulsantiera: un gruppo suo, così posizione e inclinazione si
+            // regolano in un punto solo.
+            this.toolBar = new THREE.Group();
+            this.root.add(this.toolBar);
             this.tools = [];
             this._toolsSig = '';
+            this._placeToolBar();
             this._buildTools();
 
             this._state = null;
@@ -197,6 +224,7 @@
             this.media = null;
             this.anim = null;
             this.buttons = [];
+            this.toolBar = null;
             this.tools = [];
             this._toolsSig = '';
             this.enabled = false;
@@ -296,13 +324,29 @@
                 mesh.userData.src = null;
             }
 
-            // `VideoTexture` si aggiorna da sé; un `<img>` no. La finestra
-            // animata cambia `src` a ogni fotogramma, quindi la texture va
-            // ricaricata — ma solo quando il fotogramma è davvero cambiato.
+            /*
+             * `VideoTexture` si aggiorna da sé; un `<img>` no, e la finestra
+             * animata cambia `src` a ogni fotogramma.
+             *
+             * Ma non basta accorgersi del cambio: al momento in cui `src` viene
+             * assegnato l'immagine **non è ancora decodificata**, e caricare
+             * allora la texture significa caricare il nulla. Con un solo
+             * tentativo per fotogramma il riquadro resta vuoto per sempre —
+             * ogni upload arriva un istante troppo presto e nessuno lo rifà.
+             *
+             * Quindi si segna il fotogramma come in attesa e si riprova finché
+             * l'immagine non è pronta: `complete` da solo non basta, perché è
+             * vero anche per un'immagine fallita, mentre `naturalWidth > 0` dice
+             * che c'è davvero qualcosa da mostrare.
+             */
             if (el.tagName !== 'VIDEO') {
                 const src = el.currentSrc || el.src;
                 if (src !== mesh.userData.src) {
                     mesh.userData.src = src;
+                    mesh.userData.pending = true;
+                }
+                if (mesh.userData.pending && el.complete && el.naturalWidth > 0) {
+                    mesh.userData.pending = false;
                     mesh.material.map.needsUpdate = true;
                 }
             }
@@ -343,7 +387,22 @@
             const el = A && A.isVisible ? document.getElementById('animatedWindowImage') : null;
             const mh = this._showOn(this.anim, el);
             if (mh) this.anim.position.set(0, RAISE * 0.5, 0);
-            return !!mh;
+
+            // Detto una volta sola, ma detto: dentro il visore è l'unico modo
+            // di sapere se la finestra è stata trovata o no.
+            const on = !!mh;
+            if (on !== this._animOn) {
+                this._animOn = on;
+                console.log(on
+                    ? `[XRUI] Finestra animata in-world: ${this.anim.userData.src || '?'}`
+                    : '[XRUI] Finestra animata chiusa.');
+            }
+            if (A && A.isVisible && !on && !this._animWarned) {
+                this._animWarned = true;
+                console.warn('[XRUI] Finestra animata attiva ma senza immagine da mostrare '
+                    + `(elemento ${el ? 'trovato' : 'ASSENTE'}).`);
+            }
+            return on;
         },
 
         // =====================================================================
@@ -370,7 +429,7 @@
             this._toolsSig = sig;
 
             this.tools.forEach((t) => {
-                this.root.remove(t);
+                this.toolBar.remove(t);
                 t.geometry.dispose();
                 if (t.material.map) t.material.map.dispose();
                 t.material.dispose();
@@ -384,9 +443,6 @@
             this.tools = [];
 
             const loader = new THREE.TextureLoader();
-            // Speculare al fumetto: quello a sinistra, questa a destra, e in
-            // mezzo resta la macchina.
-            const x = SIDE_X + TOOL_SIZE / 2;
             const total = list.length * TOOL_SIZE + (list.length - 1) * TOOL_GAP;
 
             list.forEach((tool, i) => {
@@ -395,7 +451,7 @@
                 btn.name = `XRUI_tool_${tool.id}`;
                 btn.userData.xrUiAction = `tool:${tool.id}`;
                 btn.userData.tool = tool;
-                btn.position.set(x, total / 2 - TOOL_SIZE / 2 - i * (TOOL_SIZE + TOOL_GAP), 0);
+                btn.position.set(0, total / 2 - TOOL_SIZE / 2 - i * (TOOL_SIZE + TOOL_GAP), 0);
                 btn.visible = !!this._toolsOn;
                 this._drawToolFrame(btn, false, false);
 
@@ -420,12 +476,22 @@
                     btn.userData.icon = icon;
                 }
 
-                this.root.add(btn);
+                this.toolBar.add(btn);
                 this.tools.push(btn);
             });
 
             if (this.tools.length) console.log(`[XRUI] Strumenti in-world: ${sig}`);
             this.version++;
+        },
+
+        /** Applica posizione e inclinazione della pulsantiera. */
+        _placeToolBar: function () {
+            if (!this.toolBar) return;
+            const d = Math.PI / 180;
+            this.toolBar.position.set(TOOLS_X * TOOLS_SIDE, TOOLS_Y, TOOLS_Z);
+            // L'imbardata è speculare fra i due lati: da destra si gira a
+            // sinistra, e viceversa.
+            this.toolBar.rotation.set(TOOLS_TILT * d, -TOOLS_YAW * d * TOOLS_SIDE, 0);
         },
 
         /** Cornice del pulsante strumento: attivo, richiesto, o nessuno dei due. */
@@ -831,6 +897,32 @@
             if (this.root) this.root.visible = this._visible;
             this.version++;
             return this._visible;
+        },
+
+        /**
+         * Posa della pulsantiera degli strumenti, per tararla dal visore.
+         *
+         * @param {object} o
+         * @param {'left'|'right'} [o.side] da che parte sta.
+         * @param {number} [o.x] scostamento laterale, in metri.
+         * @param {number} [o.y] altezza rispetto al centro del pannello.
+         * @param {number} [o.z] quanto viene incontro all'operatore.
+         * @param {number} [o.tilt] gradi: 0 in piedi, -90 sdraiata.
+         * @param {number} [o.yaw] gradi di rotazione verso l'operatore.
+         */
+        setTools: function (o) {
+            o = o || {};
+            if (o.side === 'left') TOOLS_SIDE = -1;
+            if (o.side === 'right') TOOLS_SIDE = 1;
+            if (o.x !== undefined) TOOLS_X = Number(o.x);
+            if (o.y !== undefined) TOOLS_Y = Number(o.y);
+            if (o.z !== undefined) TOOLS_Z = Number(o.z);
+            if (o.tilt !== undefined) TOOLS_TILT = Number(o.tilt);
+            if (o.yaw !== undefined) TOOLS_YAW = Number(o.yaw);
+            this._placeToolBar();
+            const pose = { side: TOOLS_SIDE > 0 ? 'right' : 'left', x: TOOLS_X, y: TOOLS_Y, z: TOOLS_Z, tilt: TOOLS_TILT, yaw: TOOLS_YAW };
+            console.log('[XRUI] Pulsantiera strumenti:', JSON.stringify(pose));
+            return pose;
         },
 
         /**

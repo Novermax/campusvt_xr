@@ -418,9 +418,16 @@ avanzano. Sul desktop è una finestra HTML sopra la scena; in VR non esisteva,
 quindi si premeva il pulsante e non succedeva niente di visibile.
 
 Va al **centro**, non sopra il fumetto: durante uno step il centro è libero
-apposta, ed è lì che si sta già guardando mentre si preme. `THREE.VideoTexture`
-si aggiorna da sé, un `<img>` no — e questa cambia `src` a ogni fotogramma:
-la texture viene ricaricata, ma solo quando il fotogramma è davvero cambiato.
+apposta, ed è lì che si sta già guardando mentre si preme.
+
+`THREE.VideoTexture` si aggiorna da sé, un `<img>` no — e questa cambia `src` a
+ogni fotogramma. Ma non basta accorgersi del cambio: al momento in cui `src`
+viene assegnato **l'immagine non è ancora decodificata**, e caricare allora la
+texture significa caricare il nulla. Con un solo tentativo per fotogramma il
+riquadro resta vuoto per sempre, perché ogni upload arriva un istante troppo
+presto e nessuno lo rifà. Il fotogramma resta quindi "in attesa" e si riprova
+finché non è pronto: `complete` da solo non basta — è vero anche per
+un'immagine fallita — mentre `naturalWidth > 0` dice che c'è davvero qualcosa.
 
 ##### La legenda degli strumenti
 
@@ -429,10 +436,19 @@ quindi invisibile. Finora l'unico modo di avere lo strumento giusto era che
 `XRInput` lo equipaggiasse da sé alla pressione — funziona, ma toglie di mezzo un
 pezzo del tutorial: scegliere l'utensile corretto è parte dell'esercizio.
 
-Ora la legenda torna, come colonna di pulsanti alla destra del pannello: icona
+Ora la legenda torna, come colonna di pulsanti al fianco dell'operatore: icona
 vera dello strumento, bordo acceso su quello attivo, cornice gialla su quello che
 lo step sta chiedendo. Premerne uno chiama lo stesso `ToolsManager.toggleTool()`
 della legenda 2D.
+
+Non è un cartello da leggere, è una tastiera da premere: il riferimento giusto
+non è un pannello a parete ma il **bracciolo di una sedia** — vicino, in basso,
+inclinato di 45° verso l'alto, dove la mano cade da sola senza alzare il braccio.
+Verticale come una vetrina costringeva a portare la mano davanti al viso; del
+tutto orizzontale sarebbe scomparsa di taglio. È anche girata verso l'operatore,
+che stando di lato altrimenti la guarderebbe di sbieco.
+`XRUI.setTools({ side, x, y, z, tilt, yaw })` per tararla — `side: 'left'` la
+sposta dall'altra parte.
 
 Gli strumenti si scelgono **solo mentre si sta facendo uno step**: col modale
 aperto il desktop blocca tutto ciò che sta dietro, e prima dell'avvio del
