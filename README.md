@@ -388,6 +388,17 @@ per toglierlo di mezzo.
 Con un modale aperto esiste **solo** OK: offrire "Avanti" mentre `core/` aspetta
 la chiusura porterebbe due navigazioni in volo.
 
+##### Ai lati mentre si lavora, al centro quando è lui il compito
+
+Durante uno step il centro dello sguardo serve alla macchina: è lì che si deve
+guardare per premere un pulsante o infilare il dito in una feritoia. Quindi
+**fumetto a sinistra, strumenti a destra**, e il mezzo resta libero — entrambi
+dove l'occhio li ritrova senza cercarli.
+
+Il modale è l'eccezione, e giustamente: quando `core/` si ferma ad aspettare
+quella chiusura, il messaggio *è* il compito. Fumetto, video e OK tornano al
+centro, davanti.
+
 ##### Il media del modale
 
 Immagini e video dei modali compaiono sopra il pannello, con le proporzioni vere.

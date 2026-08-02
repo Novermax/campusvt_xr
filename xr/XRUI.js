@@ -76,9 +76,22 @@
     const MEDIA_W = 0.52;
     const MEDIA_MAX_H = 0.34;
 
-    /** Pulsanti degli strumenti, in colonna alla destra del pannello. */
+    /** Pulsanti degli strumenti, in colonna sulla destra. */
     const TOOL_SIZE = 0.10;
     const TOOL_GAP = 0.016;
+
+    /**
+     * Quanto il fumetto si sposta a sinistra mentre si lavora.
+     *
+     * Durante uno step il centro dello sguardo serve alla macchina: è lì che si
+     * deve guardare per premere un pulsante o infilare il dito in una feritoia.
+     * Fumetto a sinistra e strumenti a destra lasciano libero il mezzo, e
+     * restano entrambi dove l'occhio li ritrova senza cercarli.
+     *
+     * Il modale è l'eccezione, e giustamente: quando `core/` si ferma ad
+     * aspettare, quello È il compito. Torna al centro, col video e l'OK.
+     */
+    const SIDE_X = 0.30;
 
     const COL_BG = 'rgba(22, 26, 33, 0.94)';
     const COL_EDGE = 'rgba(255, 210, 30, 0.55)';
@@ -117,8 +130,13 @@
             // francobollo o un cartellone.
             xrSession.rig.add(this.root);
 
+            // Il fumetto e le sue frecce sono un blocco solo: si spostano
+            // insieme fra il lato e il centro.
+            this.bubble = new THREE.Group();
+            this.root.add(this.bubble);
+
             this.panel = this._makeQuad(PANEL_W, PANEL_H, TEX_W, TEX_H);
-            this.root.add(this.panel);
+            this.bubble.add(this.panel);
 
             this.btnPrev = this._makeButton('◀  Indietro', 'prev');
             this.btnNext = this._makeButton('Avanti  ▶', 'next');
@@ -129,11 +147,13 @@
             this.btnPrev.position.set(-(BTN_W + BTN_GAP) / 2, y, 0);
             this.btnNext.position.set((BTN_W + BTN_GAP) / 2, y, 0);
             this.btnOk.position.set(0, y, 0);
-            this.buttons.forEach((b) => this.root.add(b));
+            this.bubble.add(this.btnPrev);
+            this.bubble.add(this.btnNext);
+            this.bubble.add(this.btnOk);
 
-            // Media del modale: creato una volta, riempito quando serve.
+            // Media del modale: sopra il fumetto, quindi si sposta con lui.
             this.media = this._makeMediaQuad();
-            this.root.add(this.media);
+            this.bubble.add(this.media);
 
             this.tools = [];
             this._toolsSig = '';
@@ -157,6 +177,7 @@
                 }
             });
             this.root = null;
+            this.bubble = null;
             this.panel = null;
             this.media = null;
             this._mediaEl = null;
@@ -307,7 +328,9 @@
             this.tools = [];
 
             const loader = new THREE.TextureLoader();
-            const x = PANEL_W / 2 + TOOL_SIZE / 2 + TOOL_GAP * 2;
+            // Speculare al fumetto: quello a sinistra, questa a destra, e in
+            // mezzo resta la macchina.
+            const x = SIDE_X + TOOL_SIZE / 2;
             const total = list.length * TOOL_SIZE + (list.length - 1) * TOOL_GAP;
 
             list.forEach((tool, i) => {
@@ -613,6 +636,10 @@
             this.btnNext.visible = next;
             this._toolsOn = toolsOn;
             this.tools.forEach((t) => { t.visible = toolsOn; });
+
+            // Al lavoro il fumetto si fa da parte; quando c'è un modale è lui
+            // il compito, e torna in mezzo.
+            this.bubble.position.x = modal ? 0 : -SIDE_X;
 
             // Con una freccia sola, al centro: due pulsanti asimmetrici ai lati
             // si prendono a caso.
