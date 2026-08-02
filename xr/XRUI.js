@@ -115,7 +115,7 @@
      * Il modale è l'eccezione, e giustamente: quando `core/` si ferma ad
      * aspettare, quello È il compito. Torna al centro, col video e l'OK.
      */
-    const SIDE_X = 0.58;
+    const SIDE_X = 0.46;
 
     /**
      * Quanto il fumetto si gira verso l'operatore.
@@ -124,9 +124,9 @@
      * rettangolo di testo visto di taglio è testo che non si legge. Girarlo
      * verso la testa costa nulla e restituisce la pagina piatta davanti agli
      * occhi. L'angolo segue lo scostamento: alla testa, che sta un metro più in
-     * là, quel lato sottende circa 30°.
+     * là, `atan(SIDE_X)` — a 0,46 sono circa 25°.
      */
-    const SIDE_YAW = 30;
+    const SIDE_YAW = 25;
 
     /**
      * Quanto il fumetto sale, mentre gli strumenti restano in basso.
