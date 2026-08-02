@@ -153,20 +153,37 @@
     const CANDIDATE_REFRESH_MS = 400;
 
     /**
-     * Sfera sulla punta del dito: mostrabile o no.
+     * Come si vede dove si sta per toccare. Tre modi, e la scelta è ricordata.
      *
-     * Serviva quando la mano restava indietro rispetto al punto di interazione:
-     * era l'unico segno di dove sarebbe scattato il contatto. Ora che la mano
-     * viene guidata insieme alla sfera, il polpastrello arriva già sul punto
-     * per conto suo, e c'è chi la trova di troppo — un pallino sovrapposto alla
-     * mano dove la mano basta.
+     *   'sfera'    la pallina gialla sulla punta del dito (storico)
+     *   'punto'    un disco piatto sul punto di contatto, sul bersaglio
+     *   'niente'   nessun segno
      *
-     * Spegnendola si perde solo il lampo bianco di conferma; restano il lampo
-     * emissivo sull'oggetto premuto e l'anello che si accende all'aggancio.
-     * La scelta è personale, quindi viene ricordata.
+     * ## Perché togliere del tutto il segno rompe l'interazione
+     *
+     * Provato sul visore: senza la pallina non si riesce più a premere. Non
+     * perché manchi qualcosa alla logica — il contatto continua a essere
+     * calcolato identico, e le prove lo confermano — ma perché **la pallina è
+     * l'unica cosa disegnata con `depthTest: false`**.
+     *
+     * La mano è una mesh normale: quando il polpastrello arriva a un centimetro
+     * da un pulsante, e a maggior ragione quando lo attraversa, viene coperto
+     * dalla lamiera della macchina. Proprio nell'istante in cui serve mirare, il
+     * dito sparisce dietro l'oggetto. Senza aptica, senza ombra di contatto e
+     * con la stereopsi che a un centimetro non aiuta, non resta alcun modo di
+     * capire dove si è: si preme a caso e sembra che non funzioni nulla.
+     *
+     * Da qui il terzo modo, 'punto': niente pallina sul dito, ma un disco sul
+     * bersaglio, nel punto esatto in cui il contatto scatterà — disegnato sopra
+     * la geometria, quindi sempre visibile. Il segno c'è, ma sta sulla macchina
+     * e non sulla mano.
      */
-    let CURSOR_ON = true;
+    let CURSOR_MODE = 'sfera';
     const CURSOR_KEY = 'cvtxr.cursor';
+    const CURSOR_MODES = ['sfera', 'punto', 'niente'];
+
+    /** Raggio del disco di contatto, in unità scena. */
+    const DOT_RADIUS = 0.008;
 
     const CURSOR_NEAR = 0xffd21e;   // giallo: stai per toccare
     const CURSOR_SNAP = 0xfff3b0;   // giallo chiaro: il magnete ha agganciato
@@ -251,6 +268,9 @@
                 if (s.cursor.parent) s.cursor.parent.remove(s.cursor);
                 s.cursor.geometry.dispose();
                 s.cursor.material.dispose();
+                if (s.dot.parent) s.dot.parent.remove(s.dot);
+                s.dot.geometry.dispose();
+                s.dot.material.dispose();
                 if (s.handMesh.parent) s.handMesh.parent.remove(s.handMesh);
                 s.handMesh.geometry.dispose();
                 s.handMesh.material.dispose();
@@ -295,6 +315,20 @@
             cursor.visible = false;
             rig.add(cursor);
 
+            // Disco di contatto: lo stesso segnale, ma posato sul bersaglio
+            // invece che sul dito. Anch'esso sopra la geometria, altrimenti
+            // sparirebbe proprio quando il dito ci arriva sopra.
+            const dot = new THREE.Mesh(
+                new THREE.CircleGeometry(DOT_RADIUS, 20),
+                new THREE.MeshBasicMaterial({
+                    color: CURSOR_NEAR, transparent: true, opacity: 0.75,
+                    side: THREE.DoubleSide, depthTest: false,
+                })
+            );
+            dot.renderOrder = 999;
+            dot.visible = false;
+            rig.add(dot);
+
             // Mano visibile: in immersive-vr il visore NON disegna nulla, deve
             // farlo l'applicazione. Una InstancedMesh di sferette sui 25 giunti
             // costa una sola draw call per mano ed è procedurale — niente asset
@@ -310,7 +344,7 @@
             rig.add(handMesh);
 
             const s = {
-                index, controller, handObj, cursor, handMesh,
+                index, controller, handObj, cursor, dot, handMesh,
                 hand: null, isHand: false, inputSource: null,
                 tip: new THREE.Vector3(),
                 tips: [],
@@ -822,21 +856,29 @@
                 this._guide(s, near, dist, nearTip);
                 this._updateHandVisual(s);
 
-                // Il cursore compare solo vicino a un bersaglio: lontano, la mano
+                // Il segno compare solo vicino a un bersaglio: lontano, la mano
                 // deve restare la mano.
-                s.cursor.visible = CURSOR_ON && !!near;
-                if (near) {
-                    s.cursor.position.copy(s.guided);
-                    this.xr.rig.worldToLocal(s.cursor.position);
-                    s.cursor.material.color.setHex(
-                        now < s.flashUntil ? CURSOR_HIT : (s.snapW > 0.5 ? CURSOR_SNAP : CURSOR_NEAR)
-                    );
+                s.cursor.visible = CURSOR_MODE === 'sfera' && !!near;
+                s.dot.visible = CURSOR_MODE === 'punto' && !!near;
 
-                    // Si ingrossa avvicinandosi — è più facile da vedere — e si
-                    // richiude mentre il magnete aggancia: la punta torna
-                    // sottile proprio quando serve mirare.
-                    const t = Math.max(0, 1 - (dist - POKE_ENTER) / NEAR_RANGE);
-                    s.cursor.scale.setScalar(1 + t * (1 - s.snapW) * 0.8);
+                if (near) {
+                    const tint = now < s.flashUntil
+                        ? CURSOR_HIT
+                        : (s.snapW > 0.5 ? CURSOR_SNAP : CURSOR_NEAR);
+
+                    if (s.cursor.visible) {
+                        s.cursor.position.copy(s.guided);
+                        this.xr.rig.worldToLocal(s.cursor.position);
+                        s.cursor.material.color.setHex(tint);
+
+                        // Si ingrossa avvicinandosi — è più facile da vedere — e
+                        // si richiude mentre il magnete aggancia: la punta torna
+                        // sottile proprio quando serve mirare.
+                        const t = Math.max(0, 1 - (dist - POKE_ENTER) / NEAR_RANGE);
+                        s.cursor.scale.setScalar(1 + t * (1 - s.snapW) * 0.8);
+                    }
+
+                    if (s.dot.visible) this._placeDot(s, near, dist, tint);
                 }
             }
 
@@ -845,6 +887,30 @@
             if (window.XRUI) window.XRUI.update();
             if (window.InteractiveObject3D) window.InteractiveObject3D.handleHover(hovered);
             if (window.XRLocomotion) window.XRLocomotion.update(this.sources);
+        },
+
+        /**
+         * Posa il disco di contatto sul bersaglio, nel punto esatto in cui il
+         * tocco scatterà — cioè il punto del box più vicino al dito, lo stesso
+         * che misura il contatto e che indica l'anello.
+         *
+         * Rivolto alla testa e non alla superficie: dal `Box3` non si ricava
+         * una normale attendibile, e un disco di taglio sarebbe invisibile
+         * proprio da certe angolazioni. Rivolto a chi guarda si legge sempre.
+         *
+         * L'opacità cresce avvicinandosi: da lontano è un accenno, sotto il
+         * centimetro è pieno — dice "adesso" senza bisogno di altro.
+         */
+        _placeDot: function (s, near, dist, tint) {
+            const S = window.Scene3D;
+            near.box.clampPoint(s.guided, this._tmpA);
+            s.dot.position.copy(this._tmpA);
+            this.xr.rig.worldToLocal(s.dot.position);
+            s.dot.lookAt(S.camera.getWorldPosition(this._tmpB));
+
+            s.dot.material.color.setHex(tint);
+            const t = Math.max(0, Math.min(1, 1 - (dist - POKE_ENTER) / NEAR_RANGE));
+            s.dot.material.opacity = 0.28 + 0.6 * t;
         },
 
         /**
@@ -1226,19 +1292,35 @@
         },
 
         /**
-         * Mostra o nasconde la sfera sulla punta del dito. La scelta è
-         * ricordata: si decide una volta e resta.
-         * @param {boolean} on
+         * Come si vede il punto di contatto. La scelta è ricordata.
+         *
+         * ⚠️ 'niente' toglie l'unico segno disegnato sopra la geometria: la
+         * mano, che è una mesh normale, viene coperta dalla macchina proprio
+         * quando il dito ci arriva sopra, e mirare diventa impossibile. Resta
+         * come opzione, ma è quella che sul visore si è rivelata inusabile.
+         *
+         * @param {'sfera'|'punto'|'niente'} mode
          */
-        setCursor: function (on) {
-            CURSOR_ON = !!on;
-            try { localStorage.setItem(CURSOR_KEY, CURSOR_ON ? '1' : '0'); } catch (e) { /* storage negato */ }
-            if (!CURSOR_ON) this.sources.forEach((s) => { s.cursor.visible = false; });
-            console.log(`[XRInput] Sfera sul dito: ${CURSOR_ON ? 'visibile' : 'nascosta'}`);
-            return CURSOR_ON;
+        setCursorMode: function (mode) {
+            if (CURSOR_MODES.indexOf(mode) === -1) return CURSOR_MODE;
+            CURSOR_MODE = mode;
+            try { localStorage.setItem(CURSOR_KEY, mode); } catch (e) { /* storage negato */ }
+            this.sources.forEach((s) => {
+                s.cursor.visible = false;
+                s.dot.visible = false;
+            });
+            console.log(`[XRInput] Segno di contatto: ${mode}`);
+            return CURSOR_MODE;
         },
 
-        getCursor: function () { return CURSOR_ON; },
+        getCursorMode: function () { return CURSOR_MODE; },
+
+        /** Alias storico: acceso = sfera, spento = niente. */
+        setCursor: function (on) {
+            return this.setCursorMode(on ? 'sfera' : 'niente') === 'sfera';
+        },
+
+        getCursor: function () { return CURSOR_MODE !== 'niente'; },
 
         /**
          * Tolleranza dell'aggancio, in unità scena: quanto può vagare il dito
@@ -1262,7 +1344,11 @@
 
     try {
         const saved = localStorage.getItem(CURSOR_KEY);
-        if (saved !== null) CURSOR_ON = saved === '1';
+        // '1'/'0' sono la vecchia forma booleana, salvata prima che i modi
+        // diventassero tre: va ancora letta, o la scelta fatta si perde.
+        if (saved === '0') CURSOR_MODE = 'niente';
+        else if (saved === '1') CURSOR_MODE = 'sfera';
+        else if (CURSOR_MODES.indexOf(saved) !== -1) CURSOR_MODE = saved;
     } catch (e) { /* niente di salvato */ }
 
     window.XRInput = XRInput;

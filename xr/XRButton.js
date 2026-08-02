@@ -128,23 +128,33 @@
         _buildCursorToggle: function () {
             const wrap = document.createElement('label');
             wrap.className = 'xr-toggle';
-            wrap.title = 'La sferetta gialla sulla punta del dito.\n'
-                + 'Ora che la mano viene guidata insieme a lei, il polpastrello arriva\n'
-                + 'da solo sul punto: si può spegnere. Restano il lampo sull\'oggetto\n'
-                + 'premuto e l\'anello che si accende all\'aggancio.';
-
-            const input = document.createElement('input');
-            input.type = 'checkbox';
-            input.checked = window.XRInput ? window.XRInput.getCursor() : true;
-            input.addEventListener('change', () => {
-                if (window.XRInput) window.XRInput.setCursor(input.checked);
-            });
+            wrap.title = 'Come si vede dove stai per toccare.\n\n'
+                + '• Pallina sul dito — il segno storico.\n'
+                + '• Punto sul bersaglio — nessuna pallina sulla mano, ma un disco\n'
+                + '  dove il tocco scattera\'.\n'
+                + '• Niente — sconsigliato: la mano e\' una mesh normale e viene\n'
+                + '  coperta dalla macchina proprio quando il dito ci arriva sopra,\n'
+                + '  quindi mirare diventa impossibile.';
 
             const txt = document.createElement('span');
-            txt.textContent = 'Punta del dito';
+            txt.textContent = 'Segno di contatto';
 
-            wrap.appendChild(input);
+            const sel = document.createElement('select');
+            [['sfera', 'Pallina sul dito'],
+             ['punto', 'Punto sul bersaglio'],
+             ['niente', 'Niente (sconsigliato)']].forEach(([v, label]) => {
+                const o = document.createElement('option');
+                o.value = v;
+                o.textContent = label;
+                sel.appendChild(o);
+            });
+            sel.value = window.XRInput ? window.XRInput.getCursorMode() : 'sfera';
+            sel.addEventListener('change', () => {
+                if (window.XRInput) window.XRInput.setCursorMode(sel.value);
+            });
+
             wrap.appendChild(txt);
+            wrap.appendChild(sel);
             return wrap;
         },
 

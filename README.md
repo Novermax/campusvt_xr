@@ -134,15 +134,31 @@ entro 12 cm: più larga, con i molti comandi ravvicinati del pulpito, resterebbe
 accesa di continuo. Il lampo non è ridondante rispetto alla vibrazione — con le
 mani l'aptica non esiste.
 
-**Si può spegnere** — casella *Punta del dito* sulla barra 2D, oppure
-`XRInput.setCursor(false)`; la scelta viene ricordata. Serviva quando la mano
-restava indietro rispetto al punto di interazione: era l'unico segno di dove
-sarebbe scattato il contatto. Ora che la mano viene guidata insieme alla sfera,
-il polpastrello arriva già sul punto per conto suo, e il pallino sovrapposto può
-essere di troppo. Spegnendolo si perde solo il lampo bianco di conferma: restano
-il lampo emissivo sull'oggetto premuto e l'anello che si accende all'aggancio.
+##### Il segno di contatto, e perché non si può togliere del tutto
 
-Il comando sta sulla pagina 2D e non solo in console per un motivo pratico:
+Tre modi, dal selettore *Segno di contatto* sulla barra 2D o con
+`XRInput.setCursorMode('sfera' | 'punto' | 'niente')`; la scelta è ricordata.
+
+Togliendolo del tutto **non si riesce più a premere** — provato sul visore. Non
+perché manchi qualcosa alla logica: il contatto continua a essere calcolato
+identico, e le prove lo confermano in tutti e tre i modi. Il motivo è che la
+pallina è **l'unica cosa disegnata con `depthTest: false`**.
+
+La mano è una mesh normale. Quando il polpastrello arriva a un centimetro da un
+pulsante — e a maggior ragione quando lo attraversa — viene coperto dalla lamiera
+della macchina: proprio nell'istante in cui serve mirare, il dito sparisce dietro
+l'oggetto. Senza aptica, senza ombra di contatto e con la stereopsi che a un
+centimetro non aiuta, non resta modo di capire dove si è.
+
+Da qui il modo **`punto`**: niente pallina sulla mano, ma un disco piatto sul
+bersaglio, nel punto esatto in cui il tocco scatterà — sopra la geometria, quindi
+sempre visibile, con l'opacità che cresce avvicinandosi. È rivolto a chi guarda e
+non alla superficie: dal `Box3` non si ricava una normale attendibile, e un disco
+di taglio sarebbe invisibile proprio da certe angolazioni.
+
+`niente` resta disponibile, ma è etichettato per quello che è: sconsigliato.
+
+Il selettore sta sulla pagina 2D e non solo in console per un motivo pratico:
 **dentro il visore la console non esiste**. Una regolazione senza comando sulla
 2D, di fatto, non è regolabile da chi sta provando.
 
