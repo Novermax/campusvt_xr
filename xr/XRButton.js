@@ -58,6 +58,7 @@
             // Sempre presenti, anche dove immersive-vr manca: le impostazioni sono
             // persistite, quindi si preparano da desktop e poi si indossa il visore.
             bar.appendChild(this._buildScaleSlider(xrSession));
+            bar.appendChild(this._buildCursorToggle());
             bar.appendChild(this._buildHeightPicker(xrSession));
             bar.appendChild(this._buildGripPanel());
             document.body.appendChild(bar);
@@ -112,6 +113,38 @@
 
             this._scaleInput = input;
             this._scaleOutput = out;
+            return wrap;
+        },
+
+        /**
+         * Sfera gialla sul polpastrello: accesa o spenta.
+         *
+         * Sta qui e non solo in `XRInput.setCursor()` per un motivo pratico:
+         * **dentro il visore la console non esiste**. Ogni regolazione che non
+         * abbia un comando sulla pagina 2D, di fatto, non è regolabile da chi
+         * sta provando. La scelta viene ricordata, quindi si fa una volta prima
+         * di entrare e vale da lì in poi.
+         */
+        _buildCursorToggle: function () {
+            const wrap = document.createElement('label');
+            wrap.className = 'xr-toggle';
+            wrap.title = 'La sferetta gialla sulla punta del dito.\n'
+                + 'Ora che la mano viene guidata insieme a lei, il polpastrello arriva\n'
+                + 'da solo sul punto: si può spegnere. Restano il lampo sull\'oggetto\n'
+                + 'premuto e l\'anello che si accende all\'aggancio.';
+
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.checked = window.XRInput ? window.XRInput.getCursor() : true;
+            input.addEventListener('change', () => {
+                if (window.XRInput) window.XRInput.setCursor(input.checked);
+            });
+
+            const txt = document.createElement('span');
+            txt.textContent = 'Punta del dito';
+
+            wrap.appendChild(input);
+            wrap.appendChild(txt);
             return wrap;
         },
 

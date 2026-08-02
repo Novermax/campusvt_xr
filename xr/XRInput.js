@@ -145,6 +145,22 @@
     /** Ogni quanto ricostruire l'elenco dei bersagli, in ms. Gli step cambiano. */
     const CANDIDATE_REFRESH_MS = 400;
 
+    /**
+     * Sfera sulla punta del dito: mostrabile o no.
+     *
+     * Serviva quando la mano restava indietro rispetto al punto di interazione:
+     * era l'unico segno di dove sarebbe scattato il contatto. Ora che la mano
+     * viene guidata insieme alla sfera, il polpastrello arriva già sul punto
+     * per conto suo, e c'è chi la trova di troppo — un pallino sovrapposto alla
+     * mano dove la mano basta.
+     *
+     * Spegnendola si perde solo il lampo bianco di conferma; restano il lampo
+     * emissivo sull'oggetto premuto e l'anello che si accende all'aggancio.
+     * La scelta è personale, quindi viene ricordata.
+     */
+    let CURSOR_ON = true;
+    const CURSOR_KEY = 'cvtxr.cursor';
+
     const CURSOR_NEAR = 0xffd21e;   // giallo: stai per toccare
     const CURSOR_SNAP = 0xfff3b0;   // giallo chiaro: il magnete ha agganciato
     const CURSOR_HIT = 0xffffff;    // bianco: contatto avvenuto
@@ -792,7 +808,7 @@
 
                 // Il cursore compare solo vicino a un bersaglio: lontano, la mano
                 // deve restare la mano.
-                s.cursor.visible = !!near;
+                s.cursor.visible = CURSOR_ON && !!near;
                 if (near) {
                     s.cursor.position.copy(s.guided);
                     this.xr.rig.worldToLocal(s.cursor.position);
@@ -1183,6 +1199,21 @@
         },
 
         /**
+         * Mostra o nasconde la sfera sulla punta del dito. La scelta è
+         * ricordata: si decide una volta e resta.
+         * @param {boolean} on
+         */
+        setCursor: function (on) {
+            CURSOR_ON = !!on;
+            try { localStorage.setItem(CURSOR_KEY, CURSOR_ON ? '1' : '0'); } catch (e) { /* storage negato */ }
+            if (!CURSOR_ON) this.sources.forEach((s) => { s.cursor.visible = false; });
+            console.log(`[XRInput] Sfera sul dito: ${CURSOR_ON ? 'visibile' : 'nascosta'}`);
+            return CURSOR_ON;
+        },
+
+        getCursor: function () { return CURSOR_ON; },
+
+        /**
          * Tolleranza dell'aggancio, in unità scena: quanto può vagare il dito
          * prima che la mano disegnata torni libera. 0 disattiva l'aggancio e
          * riporta la mano a seguire sempre la posizione vera.
@@ -1201,6 +1232,11 @@
             return GRAB_ENTER;
         },
     };
+
+    try {
+        const saved = localStorage.getItem(CURSOR_KEY);
+        if (saved !== null) CURSOR_ON = saved === '1';
+    } catch (e) { /* niente di salvato */ }
 
     window.XRInput = XRInput;
 })();

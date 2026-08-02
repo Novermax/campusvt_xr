@@ -133,6 +133,18 @@ entro 12 cm: più larga, con i molti comandi ravvicinati del pulpito, resterebbe
 accesa di continuo. Il lampo non è ridondante rispetto alla vibrazione — con le
 mani l'aptica non esiste.
 
+**Si può spegnere** — casella *Punta del dito* sulla barra 2D, oppure
+`XRInput.setCursor(false)`; la scelta viene ricordata. Serviva quando la mano
+restava indietro rispetto al punto di interazione: era l'unico segno di dove
+sarebbe scattato il contatto. Ora che la mano viene guidata insieme alla sfera,
+il polpastrello arriva già sul punto per conto suo, e il pallino sovrapposto può
+essere di troppo. Spegnendolo si perde solo il lampo bianco di conferma: restano
+il lampo emissivo sull'oggetto premuto e l'anello che si accende all'aggancio.
+
+Il comando sta sulla pagina 2D e non solo in console per un motivo pratico:
+**dentro il visore la console non esiste**. Una regolazione senza comando sulla
+2D, di fatto, non è regolabile da chi sta provando.
+
 Distanza di attivazione **1 cm**, con uscita a 2,2: senza isteresi un dito che
 trema a filo del bordo farebbe scattare il pulsante decine di volte al secondo.
 È la distanza vera fra dito e bersaglio, e vale identica sui bersagli guidati e
