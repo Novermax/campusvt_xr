@@ -10,6 +10,13 @@
  * locomozione (vedi XRLocomotion.js). I bersagli fuori dalla portata del braccio
  * si raggiungono spostandosi, non puntando.
  *
+ * TERZA VERSIONE: il contatto secco chiedeva una precisione che senza aptica non
+ * si ha — il dito arriva a un centimetro dal pulsante e non succede niente,
+ * perché nulla dice dove finisce l'aria. Ora il bersaglio chiesto dallo step
+ * **attira** il cursore verso il proprio punto di interazione, con forza
+ * crescente e progressiva (vedi SNAP_RANGE / SNAP_STRENGTH). Il contatto si
+ * misura sul cursore: quel che si vede è quel che vale.
+ *
  * Cosa NON cambia: il dispatch. Come per il layer touch e per il mouse, si passa
  * sempre per la stessa API basata su mesh:
  *
@@ -57,6 +64,27 @@
      */
     const NEAR_RANGE = 0.12;
 
+    /**
+     * Attrazione magnetica verso il bersaglio dello step.
+     *
+     * Senza aptica il dito non sa dove finisce l'aria e comincia il pulsante:
+     * mirare a mezzo centimetro in aria, senza attrito né contraccolpo, è una
+     * precisione che non si ha. Da qui l'assistenza: entro {@link SNAP_RANGE} il
+     * bersaglio tira a sé il cursore (la sfera gialla) verso il punto che fa
+     * scattare l'azione, con forza crescente fino a {@link SNAP_STRENGTH}.
+     *
+     * La regola che tiene insieme vista e logica: **il contatto si misura sul
+     * cursore, non sul polpastrello**. Quel che si vede è quel che vale — la
+     * sfera arriva sul punto e lì il tocco scatta, come un tocco normale.
+     * L'attrazione è progressiva (smoothstep), mai un teletrasporto.
+     *
+     * Vale SOLO per i bersagli `evidenziato`, cioè per l'`element` che lo step
+     * sta chiedendo. Gli altri restano alla soglia secca: nessuna scorciatoia
+     * inattesa su ciò che il tutorial non ha chiesto.
+     */
+    let SNAP_RANGE = 0.09;
+    let SNAP_STRENGTH = 0.85;
+
     /** Giunti di una XRHand. Serve a dimensionare la mesh istanziata di ripiego. */
     const HAND_JOINT_COUNT = 25;
 
@@ -72,11 +100,22 @@
     const CANDIDATE_REFRESH_MS = 400;
 
     const CURSOR_NEAR = 0xffd21e;   // giallo: stai per toccare
+    const CURSOR_SNAP = 0xfff3b0;   // giallo chiaro: il magnete ha agganciato
     const CURSOR_HIT = 0xffffff;    // bianco: contatto avvenuto
     const FLASH_MS = 160;
 
-    /** Colore degli anelli e del lampo di pressione. */
+    /** Colore degli anelli e del lampo di pressione. Lo stesso della sfera del
+     *  dito: cerchio e cursore devono leggersi come la stessa cosa. */
     const HL_COLOR = 0xffd21e;
+
+    /**
+     * Misure dell'anello indicatore. Piccolo e sottile: segna il punto da
+     * toccare, non circonda l'oggetto. La versione precedente, legata
+     * all'ingombro del bersaglio, dominava la scena su elementi grandi.
+     */
+    const RING_MIN = 0.018;
+    const RING_MAX = 0.045;
+
     /** Durata del lampo emissivo sull'oggetto premuto. */
     const PRESS_FLASH_MS = 220;
 
@@ -91,6 +130,14 @@
         _lastRebuild: 0,
         _tmpA: null,
         _tmpB: null,
+
+        /**
+         * Ultimo tocco andato a buon fine o a vuoto, in italiano leggibile.
+         * Finisce nel riepilogo di XRLog: dentro il visore è l'unico modo per
+         * sapere se un elemento non reagisce perché non è stato toccato o
+         * perché il tocco è stato scartato a valle.
+         */
+        lastTouch: null,
 
         // =====================================================================
         // Ciclo di vita
@@ -196,6 +243,7 @@
                 hasTip: false,
                 engaged: null,      // mesh attualmente "premuta", per l'isteresi
                 near: null,
+                snapW: 0,           // forza dell'attrazione in corso, 0..1
                 flashUntil: 0,
             };
 
@@ -419,6 +467,22 @@
             return c.kind === 'impugnabile' ? GRAB_ENTER : POKE_ENTER;
         },
 
+        /**
+         * Forza dell'attrazione magnetica su un bersaglio, data la distanza
+         * grezza del dito.
+         *
+         * @returns {number} 0 = nessuna attrazione, 1 = cursore esattamente sul
+         *          punto di interazione. Curva smoothstep: parte da zero al
+         *          bordo del campo e cresce dolcemente, così l'aggancio si
+         *          sente come un'attrazione e non come uno scatto.
+         */
+        _assistFor: function (c, dist) {
+            if (!c || c.kind !== 'evidenziato') return 0;
+            if (SNAP_STRENGTH <= 0 || dist >= SNAP_RANGE) return 0;
+            const u = 1 - dist / SNAP_RANGE;
+            return u * u * (3 - 2 * u) * SNAP_STRENGTH;
+        },
+
         // =====================================================================
         // Frame
         // =====================================================================
@@ -440,13 +504,17 @@
                 this._updateHandVisual(s);
                 if (!this._updateTip(s) || blocked) { s.cursor.visible = false; s.engaged = null; continue; }
 
-                const { hit, near, dist } = this._probe(s.tips);
+                const { hit, near, dist, nearTip } = this._probe(s.tips);
 
                 // Isteresi: si esce solo oltre la soglia allargata, così un dito
-                // che trema sul bordo non ripete il comando.
+                // che trema sul bordo non ripete il comando. Si misura nello
+                // stesso spazio dell'ingresso — quello assistito — altrimenti
+                // con il magnete attivo entrata e uscita si sovrappongono e il
+                // comando parte a raffica.
                 if (s.engaged) {
                     let d = Infinity;
                     for (const t of s.tips) d = Math.min(d, s.engaged.box.distanceToPoint(t));
+                    d *= 1 - this._assistFor(s.engaged, d);
                     const exit = s.engaged.kind === 'impugnabile' ? GRAB_ENTER * 1.8 : POKE_EXIT;
                     if (d > exit) s.engaged = null;
                 } else if (hit) {
@@ -463,12 +531,34 @@
                 // Il cursore compare solo vicino a un bersaglio: lontano, la mano
                 // deve restare la mano.
                 s.cursor.visible = !!near;
+                s.snapW = 0;
                 if (near) {
-                    s.cursor.position.copy(s.tip);
+                    const tipRef = nearTip || s.tip;
+                    const w = this._assistFor(near, dist);
+
+                    // Il cursore viene accompagnato verso il punto di
+                    // interazione — il punto del bersaglio più vicino al dito,
+                    // lo stesso che il test di contatto misura e che l'anello
+                    // indica. Con w = 0 resta esattamente sul polpastrello:
+                    // fuori dal campo magnetico nulla cambia.
+                    this._tmpA.copy(tipRef);
+                    if (w > 0) {
+                        near.box.clampPoint(tipRef, this._tmpB);
+                        this._tmpA.lerp(this._tmpB, w);
+                        s.snapW = w;
+                    }
+
+                    s.cursor.position.copy(this._tmpA);
                     this.xr.rig.worldToLocal(s.cursor.position);
-                    s.cursor.material.color.setHex(now < s.flashUntil ? CURSOR_HIT : CURSOR_NEAR);
+                    s.cursor.material.color.setHex(
+                        now < s.flashUntil ? CURSOR_HIT : (w > 0.5 ? CURSOR_SNAP : CURSOR_NEAR)
+                    );
+
+                    // Si ingrossa avvicinandosi — è più facile da vedere — e si
+                    // richiude mentre il magnete aggancia: la punta torna
+                    // sottile proprio quando serve mirare.
                     const t = Math.max(0, 1 - (dist - POKE_ENTER) / NEAR_RANGE);
-                    s.cursor.scale.setScalar(1 + t * 0.8);
+                    s.cursor.scale.setScalar(1 + t * (1 - w) * 0.8);
                 }
             }
 
@@ -480,11 +570,14 @@
 
         /**
          * @param {THREE.Vector3[]} tips punti della mano che contano come contatto.
-         * @returns {{hit:?object, near:?object, dist:number}} bersaglio toccato e bersaglio vicino.
+         * @returns {{hit:?object, near:?object, dist:number, nearTip:?THREE.Vector3}}
+         *          bersaglio toccato, bersaglio vicino, distanza grezza e punto
+         *          della mano che se ne sta più vicino.
          */
         _probe: function (tips) {
             let hit = null;
             let near = null;
+            let nearTip = null;
             let bestHit = Infinity;
             let bestNear = Infinity;
 
@@ -493,12 +586,23 @@
                 // Basta che UNO dei punti tocchi: un oggetto lo si prende col
                 // palmo o col pollice, non solo con la punta dell'indice.
                 let d = Infinity;
-                for (const t of tips) d = Math.min(d, c.box.distanceToPoint(t));
+                let tip = null;
+                for (const t of tips) {
+                    const dt = c.box.distanceToPoint(t);
+                    if (dt < d) { d = dt; tip = t; }
+                }
 
-                if (d <= radius && d < bestHit) { bestHit = d; hit = c; }
-                if (d <= Math.max(NEAR_RANGE, radius) && d < bestNear) { bestNear = d; near = c; }
+                // Il contatto si misura sul cursore, che il magnete ha già
+                // portato avanti: `dEff` è la distanza fra la sfera gialla e il
+                // bersaglio. Sui candidati senza assistenza coincide con `d`.
+                const dEff = d * (1 - this._assistFor(c, d));
+
+                if (dEff <= radius && dEff < bestHit) { bestHit = dEff; hit = c; }
+                if (d <= Math.max(NEAR_RANGE, radius) && d < bestNear) {
+                    bestNear = d; near = c; nearTip = tip;
+                }
             }
-            return { hit, near, dist: bestNear };
+            return { hit, near, dist: bestNear, nearTip };
         },
 
         // =====================================================================
@@ -524,7 +628,7 @@
 
             while (this._rings.length < wanted.length) {
                 const ring = new THREE.Mesh(
-                    new THREE.RingGeometry(0.80, 1.0, 40),
+                    new THREE.RingGeometry(0.84, 1.0, 40),
                     new THREE.MeshBasicMaterial({
                         color: HL_COLOR, transparent: true, opacity: 0.85,
                         side: THREE.DoubleSide, depthTest: false,
@@ -571,15 +675,26 @@
                  * Raggio limitato in alto e in basso. Legarlo solo all'ingombro
                  * dava un anello gigantesco attorno alla porta: l'indicatore deve
                  * restare un segno di dimensione umana, come il cerchio giallo
-                 * del desktop che ha misura fissa a schermo.
+                 * del desktop che ha misura fissa a schermo. Tenuto piccolo di
+                 * proposito: il colore giallo dell'elemento (che ci mette
+                 * `InteractiveObject3D.applyButtonHighlight`) dice GIÀ cosa
+                 * toccare; l'anello serve a dire DOVE, e basta un segno.
                  */
-                const r = Math.min(0.12, Math.max(0.035, Math.max(size.x, size.y, size.z) * 0.8));
+                const r = Math.min(RING_MAX, Math.max(RING_MIN, Math.max(size.x, size.y, size.z) * 0.35));
 
-                // Scala ferma, opacità pulsante: un anello che cambia dimensione
-                // sembra allontanarsi e rende difficile mirare il bersaglio.
-                ring.scale.setScalar(r);
+                /*
+                 * Quando una mano entra nel campo magnetico l'anello si accende:
+                 * è il segnale che il bersaglio è ormai raggiungibile e che il
+                 * cursore sta venendo accompagnato sul punto. Fuori dal campo
+                 * resta discreto, una presenza che non copre la macchina.
+                 */
+                const glow = best < SNAP_RANGE ? Math.max(0, 1 - best / SNAP_RANGE) : 0;
+
+                // Scala quasi ferma, opacità pulsante: un anello che cambia
+                // dimensione sembra allontanarsi e rende difficile mirare.
+                ring.scale.setScalar(r * (1 + glow * 0.18));
                 ring.lookAt(camPos);
-                ring.material.opacity = 0.35 + 0.5 * pulse;
+                ring.material.opacity = (0.22 + 0.26 * pulse) + glow * 0.45;
                 ring.visible = true;
             });
         },
@@ -638,26 +753,91 @@
                 if (IO.handleClick(mesh, { isXR: true, isPoke: true, point: s.tip.clone() })) {
                     this._flashMesh(mesh);
                     this._confirm(s);
-                    console.log(`[XRInput] 👆 ${mesh.name} premuto`);
+                    this._note(mesh, 'pulsante premuto');
                     return;
                 }
             }
             if (IO && IO.highlightedButtons) {
                 for (const [, m] of IO.highlightedButtons) {
                     if (m !== mesh) continue;
-                    if (IO.handleClick(mesh, { isXR: true, isPoke: true })) { this._flashMesh(mesh); this._confirm(s); return; }
+                    if (IO.handleClick(mesh, { isXR: true, isPoke: true })) {
+                        this._flashMesh(mesh);
+                        this._confirm(s);
+                        this._note(mesh, 'pulsante evidenziato premuto');
+                        return;
+                    }
                     break;
                 }
             }
 
             const root = S.findRootModel(mesh);
             if (root && S.isModelSelectable(root)) {
-                if (S.dragDropSystem && S.dragDropSystem.enabled) return;
+                if (S.dragDropSystem && S.dragDropSystem.enabled) {
+                    this._note(mesh, 'ignorato: drag&drop attivo', false);
+                    return;
+                }
+
+                // Lo strumento va equipaggiato PRIMA: `handleModelAction` esce
+                // subito se non combacia con quello chiesto dallo step.
+                const tool = this._ensureToolForStep();
+
+                const anim = S.animationSystem;
+                const before = anim ? anim.activeAnimations.length + anim.multiStepAnimations.size : 0;
                 S.handleModelAction(root);
+                const after = anim ? anim.activeAnimations.length + anim.multiStepAnimations.size : 0;
+
                 this._flashMesh(mesh);
                 this._confirm(s);
-                console.log(`[XRInput] 👆 azione su modello: ${root.name}`);
+                const suffix = tool ? ` (strumento ${tool})` : '';
+                this._note(mesh,
+                    after > before ? `azione avviata su ${root.name}${suffix}` : `nessun effetto su ${root.name}${suffix}`,
+                    after > before);
+            } else {
+                this._note(mesh, 'nessun gestore per questa mesh', false);
             }
+        },
+
+        /**
+         * Equipaggia lo strumento che lo step richiede.
+         *
+         * Sul desktop lo strumento si sceglie dalla legenda in basso a destra:
+         * è DOM, quindi in `immersive-vr` non esiste e nessuno può cliccarla —
+         * `ToolsManager.getActiveTool()` resta `null` per tutta la sessione.
+         * `Scene3D.handleModelAction` però esce subito quando lo strumento
+         * attivo non è quello richiesto, e questo è il motivo per cui la porta
+         * non si apriva: il contatto veniva rilevato e l'azione scartata un
+         * istante dopo, senza alcun segnale. Stessa sorte per ogni step con
+         * `do :` — chiave, spray, naso dell'elettromandrino.
+         *
+         * In VR la mano è la mano: lo strumento dello step si equipaggia da sé.
+         * Quando ci sarà la scelta degli strumenti in-world (Milestone 4) questo
+         * resterà come ripiego per gli step che non la offrono.
+         *
+         * @returns {?string} strumento equipaggiato, o null se non serviva.
+         */
+        _ensureToolForStep: function () {
+            const S = window.Scene3D;
+            const TM = window.ToolsManager;
+            if (!S || !TM || typeof TM.toggleTool !== 'function') return null;
+            if (typeof S.getCurrentTutorialStep !== 'function') return null;
+
+            const step = S.getCurrentTutorialStep();
+            if (!step) return null;
+
+            const required = S.getRequiredToolForStep(step);
+            if (!required) return null;
+            if (TM.getActiveTool() === required) return required;
+
+            TM.toggleTool(required);
+            console.log(`[XRInput] 🔧 Strumento equipaggiato dallo step: ${required}`);
+            return required;
+        },
+
+        /** Registra l'esito dell'ultimo tocco, per il riepilogo di XRLog. */
+        _note: function (mesh, esito, ok) {
+            const name = (mesh && mesh.name) || '?';
+            this.lastTouch = { name, esito, ok: ok !== false, at: Date.now() };
+            console.log(`[XRInput] 👆 ${name} → ${esito}`);
         },
 
         /** Vibrazione dove c'è, lampo del cursore sempre: le mani non hanno aptica. */
@@ -685,6 +865,9 @@
                 vicino: this.sources.map((s) => s.near ? s.near.name : '-').join(' | '),
                 premuto: this.sources.map((s) => s.engaged ? s.engaged.mesh.name : '-').join(' | '),
                 sogliaContatto: `${(POKE_ENTER * 100).toFixed(1)} cm (unità scena)`,
+                magnete: `raggio ${(SNAP_RANGE * 100).toFixed(1)} cm, forza ${SNAP_STRENGTH.toFixed(2)}`,
+                attrazione: this.sources.map((s) => s.snapW ? `${(s.snapW * 100).toFixed(0)}%` : '-').join(' | '),
+                ultimoTocco: this.lastTouch ? `${this.lastTouch.name} → ${this.lastTouch.esito}` : 'nessuno',
             };
             console.table(info);
             return info;
@@ -700,6 +883,22 @@
             POKE_EXIT = POKE_ENTER * 1.8;
             console.log(`[XRInput] Soglia contatto: ${(POKE_ENTER * 100).toFixed(1)} cm (uscita ${(POKE_EXIT * 100).toFixed(1)} cm)`);
             return POKE_ENTER;
+        },
+
+        /**
+         * Taratura del magnete dal visore, senza uscire dalla sessione.
+         *
+         * @param {number} [range] raggio del campo in unità scena. Sotto la
+         *        soglia di contatto il magnete non avrebbe spazio per agire.
+         * @param {number} [strength] 0 = disattivato (comportamento precedente,
+         *        contatto secco sul polpastrello), 1 = il cursore finisce
+         *        esattamente sul punto di interazione.
+         */
+        setSnap: function (range, strength) {
+            if (range !== undefined) SNAP_RANGE = Math.max(POKE_ENTER * 1.5, Math.min(0.30, Number(range) || SNAP_RANGE));
+            if (strength !== undefined) SNAP_STRENGTH = Math.max(0, Math.min(1, Number(strength)));
+            console.log(`[XRInput] Magnete: raggio ${(SNAP_RANGE * 100).toFixed(1)} cm, forza ${SNAP_STRENGTH.toFixed(2)}`);
+            return { range: SNAP_RANGE, strength: SNAP_STRENGTH };
         },
 
         /** Soglia per afferrare, separata perché il gesto è più grossolano. */

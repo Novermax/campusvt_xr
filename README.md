@@ -137,8 +137,65 @@ Tolleranza di contatto 2,2 cm, con uscita a 4 cm: senza isteresi un dito che
 trema a filo del bordo farebbe scattare il pulsante decine di volte al secondo.
 Tarabile a caldo con `XRInput.setPokeRadius(0.03)`.
 
+##### Dove toccare: un anello piccolo, dello stesso giallo del dito
+
+Sul desktop il bersaglio dello step è cerchiato da `HighlightCircleManager`, che
+è DOM posizionato in pixel: in `immersive-vr` semplicemente non esiste. Al suo
+posto c'è un anello 3D, sempre rivolto verso chi guarda, sul **punto del
+bersaglio più vicino alla mano** — cioè esattamente il punto che fa scattare
+l'azione. Sul baricentro sarebbe a mezz'aria in mezzo all'anta di una porta.
+
+È volutamente piccolo (1,8–4,5 cm di raggio), sottile e dello stesso giallo della
+sfera sul dito: anello e cursore devono leggersi come la stessa cosa. Cosa
+toccare lo dice già la velatura gialla che il core mette sull'elemento
+(`InteractiveObject3D.applyButtonHighlight`); all'anello resta da dire **dove**,
+e per quello basta un segno. Quando una mano entra nel campo magnetico l'anello
+si accende e cresce di poco: è il segnale che il bersaglio è ormai raggiungibile.
+
+##### Il magnete: l'elemento dello step attira il dito
+
+Il contatto secco chiede una precisione che senza aptica non si ha: il dito
+arriva a un centimetro dal pulsante e non succede niente, perché nulla dice dove
+finisce l'aria. Da qui l'assistenza magnetica.
+
+Entro **9 cm** dall'`element` che lo step sta chiedendo, il bersaglio comincia a
+tirare a sé la sfera gialla verso il proprio punto di interazione — lo stesso
+punto che l'anello indica. L'attrazione cresce con continuità (curva smoothstep)
+fino all'85%: è un accompagnamento, mai un teletrasporto.
+
+La regola che tiene insieme vista e logica: **il contatto si misura sul cursore,
+non sul polpastrello**. Quel che si vede è quel che vale — la sfera arriva sul
+punto e lì il tocco scatta, come un tocco normale. In pratica il bersaglio dello
+step si attiva a circa 4,5 cm invece di 2,2, ma solo perché il dito, visibilmente,
+c'è già arrivato.
+
+Vale **solo per i bersagli `evidenziato`**, cioè per l'element chiesto dallo step
+e per gli oggetti impugnabili già facilitati dalla loro soglia larga. Tutto il
+resto resta alla soglia secca: nessuna scorciatoia inattesa su ciò che il
+tutorial non ha chiesto.
+
+Taratura a caldo: `XRInput.setSnap(0.12, 0.9)` — raggio e forza.
+`XRInput.setSnap(undefined, 0)` disattiva il magnete e riporta il comportamento
+al contatto secco di prima.
+
+##### Lo strumento dello step si equipaggia da solo
+
+Sul desktop lo strumento (mano, brugola, spray…) si sceglie dalla legenda in
+basso: è DOM, quindi in `immersive-vr` non esiste e nessuno può cliccarla.
+`Scene3D.handleModelAction` però esce subito quando lo strumento attivo non è
+quello richiesto — ed era per questo che **la porta non si apriva**: il contatto
+veniva rilevato e l'azione scartata un istante dopo, in silenzio. Stessa sorte
+per ogni step con `do :`.
+
+In VR la mano è la mano: alla pressione, `XRInput` equipaggia da sé lo strumento
+che lo step dichiara. Quando ci sarà la scelta degli strumenti in-world
+(Milestone 4) questo resterà come ripiego per gli step che non la offrono.
+
 `XRInput.debugInfo()` riporta, per ciascuna sorgente, se è una mano o un
-controller, cosa ha vicino e cosa sta premendo.
+controller, cosa ha vicino, cosa sta premendo, quanta attrazione sta subendo e
+com'è finito l'ultimo tocco. Lo stesso esito compare nel riepilogo di
+`📋 Log XR`, che è l'unico canale leggibile dal visore: se un elemento non
+reagisce, dice se è stato toccato e se il tocco è servito a qualcosa.
 
 #### Oggetti impugnati
 

@@ -138,6 +138,13 @@
                 const withMesh = XI.sources.filter((s) => s.handModel).length;
                 add('Mesh mano caricata', withMesh ? `sì (${withMesh})` : 'no — restano le sferette', withMesh > 0);
                 add('Bersagli premibili', String(XI.candidates.length), XI.candidates.length > 0);
+                // La domanda vera quando un elemento non reagisce: è stato
+                // toccato? E il tocco è servito a qualcosa?
+                const lt = XI.lastTouch;
+                add('Ultimo tocco', lt ? `${lt.name} → ${lt.esito}` : 'NESSUNO — mai toccato nulla', !!lt && lt.ok);
+                const tool = window.ToolsManager && window.ToolsManager.getActiveTool
+                    ? window.ToolsManager.getActiveTool() : null;
+                add('Strumento in mano', tool || 'nessuno', !!tool);
             } else {
                 add('Input XR', 'non inizializzato', false);
             }
