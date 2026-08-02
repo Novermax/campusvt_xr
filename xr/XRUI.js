@@ -166,6 +166,10 @@
             this.media = this._makeMediaQuad();
             this.bubble.add(this.media);
 
+            // Finestra animata: al centro, dove si sta già guardando.
+            this.anim = this._makeMediaQuad();
+            this.root.add(this.anim);
+
             this.tools = [];
             this._toolsSig = '';
             this._buildTools();
@@ -191,7 +195,7 @@
             this.bubble = null;
             this.panel = null;
             this.media = null;
-            this._mediaEl = null;
+            this.anim = null;
             this.buttons = [];
             this.tools = [];
             this._toolsSig = '';
@@ -257,48 +261,89 @@
         },
 
         /**
-         * Attacca al riquadro il media del modale, se c'è.
-         * @returns {boolean} true se qualcosa è stato mostrato.
+         * Mostra su un quad l'elemento DOM dato, con le sue proporzioni vere.
+         * Un video 16:9 stirato in 4:3 si nota subito.
+         *
+         * @param {THREE.Mesh} mesh riquadro su cui mostrarlo.
+         * @param {?HTMLElement} el `<video>` o `<img>`; null per spegnere.
+         * @returns {number} altezza in metri di quel che è stato mostrato, 0 se nulla.
          */
-        _syncMedia: function (show) {
+        _showOn: function (mesh, el) {
             const THREE = window.THREE;
-            const box = document.getElementById('infoModalMedia');
-            const el = show && box ? (box.querySelector('video') || box.querySelector('img')) : null;
 
-            if (!el) {
-                if (this._mediaEl) {
-                    if (this.media.material.map) this.media.material.map.dispose();
-                    this.media.material.map = null;
-                    this.media.material.needsUpdate = true;
-                    this._mediaEl = null;
+            // Un `<img>` senza sorgente esiste ma non ha nulla da mostrare:
+            // la finestra animata lo crea vuoto e lo riempie al primo trigger.
+            if (!el || (el.tagName === 'IMG' && !el.src)) {
+                if (mesh.userData.el) {
+                    if (mesh.material.map) mesh.material.map.dispose();
+                    mesh.material.map = null;
+                    mesh.material.needsUpdate = true;
+                    mesh.userData.el = null;
                 }
-                this.media.visible = false;
-                return false;
+                mesh.visible = false;
+                return 0;
             }
 
-            if (el !== this._mediaEl) {
-                if (this.media.material.map) this.media.material.map.dispose();
+            if (el !== mesh.userData.el) {
+                if (mesh.material.map) mesh.material.map.dispose();
                 const tex = el.tagName === 'VIDEO'
                     ? new THREE.VideoTexture(el)
                     : new THREE.Texture(el);
                 tex.colorSpace = THREE.SRGBColorSpace;
-                if (el.tagName !== 'VIDEO') tex.needsUpdate = true;
-                this.media.material.map = tex;
-                this.media.material.needsUpdate = true;
-                this._mediaEl = el;
+                mesh.material.map = tex;
+                mesh.material.needsUpdate = true;
+                mesh.userData.el = el;
+                mesh.userData.src = null;
             }
 
-            // Proporzioni vere del media, non un rettangolo deciso a priori:
-            // un video 16:9 stirato in 4:3 si nota subito.
+            // `VideoTexture` si aggiorna da sé; un `<img>` no. La finestra
+            // animata cambia `src` a ogni fotogramma, quindi la texture va
+            // ricaricata — ma solo quando il fotogramma è davvero cambiato.
+            if (el.tagName !== 'VIDEO') {
+                const src = el.currentSrc || el.src;
+                if (src !== mesh.userData.src) {
+                    mesh.userData.src = src;
+                    mesh.material.map.needsUpdate = true;
+                }
+            }
+
             const w = el.videoWidth || el.naturalWidth || 16;
             const h = el.videoHeight || el.naturalHeight || 9;
             let mw = MEDIA_W;
             let mh = (MEDIA_W * h) / w;
             if (mh > MEDIA_MAX_H) { mh = MEDIA_MAX_H; mw = (MEDIA_MAX_H * w) / h; }
-            this.media.scale.set(mw / MEDIA_W, mh / (MEDIA_W * 0.5625), 1);
-            this.media.position.set(0, PANEL_H / 2 + mh / 2 + BTN_GAP, 0);
-            this.media.visible = true;
-            return true;
+            mesh.scale.set(mw / MEDIA_W, mh / (MEDIA_W * 0.5625), 1);
+            mesh.visible = true;
+            return mh;
+        },
+
+        /** Immagine o video del modale, sopra il fumetto. */
+        _syncMedia: function (show) {
+            const box = document.getElementById('infoModalMedia');
+            const el = show && box ? (box.querySelector('video') || box.querySelector('img')) : null;
+            const mh = this._showOn(this.media, el);
+            if (mh) this.media.position.set(0, PANEL_H / 2 + mh / 2 + BTN_GAP, 0);
+            return !!mh;
+        },
+
+        /**
+         * La finestra animata a fotogrammi (`AnimatedWindowSystem`).
+         *
+         * È il filmato che accompagna certi passi — l'apertura e chiusura della
+         * pinza comandata dal tecpad, per dire: si preme il pulsante e i
+         * fotogrammi avanzano. Sul desktop è una finestra HTML sopra la scena;
+         * in VR non esisteva, quindi si premeva il pulsante e non succedeva
+         * niente di visibile.
+         *
+         * Va al centro, non sopra il fumetto: durante uno step il centro è
+         * libero apposta, ed è lì che si sta già guardando mentre si preme.
+         */
+        _syncAnimation: function () {
+            const A = window.AnimatedWindowSystem;
+            const el = A && A.isVisible ? document.getElementById('animatedWindowImage') : null;
+            const mh = this._showOn(this.anim, el);
+            if (mh) this.anim.position.set(0, RAISE * 0.5, 0);
+            return !!mh;
         },
 
         // =====================================================================
@@ -611,6 +656,7 @@
             // arriva un istante dopo il messaggio, e le sue dimensioni ancora
             // dopo, quando il primo fotogramma è decodificato.
             this._syncMedia(st.mode === 'modal');
+            this._syncAnimation();
 
             // Gli strumenti dipendono dallo scenario, che può cambiare senza
             // che cambi nulla del testo.

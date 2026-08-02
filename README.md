@@ -403,13 +403,24 @@ Il modale è l'eccezione, e giustamente: quando `core/` si ferma ad aspettare
 quella chiusura, il messaggio *è* il compito. Fumetto, video e OK tornano al
 centro, davanti.
 
-##### Il media del modale
+##### Media: il video del modale e la finestra animata
 
-Immagini e video dei modali compaiono sopra il pannello, con le proporzioni vere.
+Immagini e video dei modali compaiono sopra il fumetto, con le proporzioni vere.
 La texture arriva **dall'elemento che `core/` ha già creato** dentro
 `#infoModalMedia`: il video lo carica e lo riproduce lui, qui se ne mostrano i
 fotogrammi (`THREE.VideoTexture`). Ricaricarlo per conto nostro significherebbe
 due decodifiche dello stesso file e due punti dove può fallire.
+
+Stessa strada per la **finestra animata a fotogrammi** (`AnimatedWindowSystem`):
+è il filmato che accompagna certi passi — l'apertura e chiusura della pinza
+comandata dal tecpad, per dire, dove si preme il pulsante e i fotogrammi
+avanzano. Sul desktop è una finestra HTML sopra la scena; in VR non esisteva,
+quindi si premeva il pulsante e non succedeva niente di visibile.
+
+Va al **centro**, non sopra il fumetto: durante uno step il centro è libero
+apposta, ed è lì che si sta già guardando mentre si preme. `THREE.VideoTexture`
+si aggiorna da sé, un `<img>` no — e questa cambia `src` a ogni fotogramma:
+la texture viene ricaricata, ma solo quando il fotogramma è davvero cambiato.
 
 ##### La legenda degli strumenti
 
