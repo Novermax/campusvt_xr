@@ -175,6 +175,22 @@
                 add('Input XR', 'non inizializzato', false);
             }
 
+            // Finestra animata: la catena ha tre anelli — core la apre, trova le
+            // immagini, il layer XR la rispecchia — e serve sapere quale cede.
+            const A = window.AnimatedWindowSystem;
+            const UIX = window.XRUI;
+            if (A) {
+                const n = A.state && A.state.images ? A.state.images.length : 0;
+                if (!A.isVisible) {
+                    add('Finestra animata', 'non aperta da core', true);
+                } else if (!n) {
+                    add('Finestra animata', 'aperta ma SENZA immagini trovate', false);
+                } else {
+                    const shown = UIX && UIX.anim && UIX.anim.visible;
+                    add('Finestra animata', `${n} fotogrammi, in-world: ${shown ? 'sì' : 'NO'}`, !!shown);
+                }
+            }
+
             if (XH) {
                 add('Aggancio oggetti', XH.active ? 'installato' : 'NON installato', !!XH.active);
                 add('Ultimo oggetto in', XH.anchorParentName || 'mai agganciato', !!XH.anchorParentName);

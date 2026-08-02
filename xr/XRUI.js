@@ -115,7 +115,18 @@
      * Il modale è l'eccezione, e giustamente: quando `core/` si ferma ad
      * aspettare, quello È il compito. Torna al centro, col video e l'OK.
      */
-    const SIDE_X = 0.34;
+    const SIDE_X = 0.58;
+
+    /**
+     * Quanto il fumetto si gira verso l'operatore.
+     *
+     * Spinto al bordo del cono visivo lo si guarda molto di sbieco, e un
+     * rettangolo di testo visto di taglio è testo che non si legge. Girarlo
+     * verso la testa costa nulla e restituisce la pagina piatta davanti agli
+     * occhi. L'angolo segue lo scostamento: alla testa, che sta un metro più in
+     * là, quel lato sottende circa 30°.
+     */
+    const SIDE_YAW = 30;
 
     /**
      * Quanto il fumetto sale, mentre gli strumenti restano in basso.
@@ -383,28 +394,79 @@
          *
          * Va al centro, non sopra il fumetto: durante uno step il centro è
          * libero apposta, ed è lì che si sta già guardando mentre si preme.
+         *
+         * ## Perché qui NON si rispecchia il DOM
+         *
+         * Ovunque altro il layer XR mostra l'elemento che `core/` ha già
+         * caricato. Qui no, e la ragione è che con l'`<img>` non ha funzionato
+         * due volte: la texture va caricata quando l'immagine è decodificata, e
+         * indovinare quell'istante dall'esterno è fragile — un tentativo troppo
+         * presto e il riquadro resta vuoto senza che nessuno se ne accorga.
+         *
+         * Si legge invece lo **stato**: `state.images` e `state.currentIndex`
+         * dicono quale fotogramma mostrare, e la texture la si carica per conto
+         * proprio, una volta sola per fotogramma e tenuta in cache. Sono PNG
+         * piccoli e già nella cache del browser, quindi il doppio caricamento
+         * non costa nulla; in cambio non c'è più alcun istante da indovinare.
+         * Sequenza, direzione, conteggio dei trigger e chiusura restano di
+         * `core/`: si rispecchia il *cosa*, non il *quando*.
          */
         _syncAnimation: function () {
+            const THREE = window.THREE;
             const A = window.AnimatedWindowSystem;
-            const el = A && A.isVisible ? document.getElementById('animatedWindowImage') : null;
-            const mh = this._showOn(this.anim, el);
-            if (mh) this.anim.position.set(0, RAISE * 0.5, 0);
+            const st = A && A.isVisible ? A.state : null;
+            const list = st && st.images;
+            const url = list && list.length ? list[st.currentIndex || 0] : null;
 
-            // Detto una volta sola, ma detto: dentro il visore è l'unico modo
-            // di sapere se la finestra è stata trovata o no.
-            const on = !!mh;
-            if (on !== this._animOn) {
-                this._animOn = on;
-                console.log(on
-                    ? `[XRUI] Finestra animata in-world: ${this.anim.userData.src || '?'}`
-                    : '[XRUI] Finestra animata chiusa.');
+            if (!url) {
+                this.anim.visible = false;
+                if (this._animOn) { this._animOn = false; console.log('[XRUI] Finestra animata chiusa.'); }
+                return false;
             }
-            if (A && A.isVisible && !on && !this._animWarned) {
-                this._animWarned = true;
-                console.warn('[XRUI] Finestra animata attiva ma senza immagine da mostrare '
-                    + `(elemento ${el ? 'trovato' : 'ASSENTE'}).`);
+
+            if (url !== this._animUrl) {
+                this._animUrl = url;
+                const cached = this._animCache && this._animCache.get(url);
+                if (cached) {
+                    this._applyAnimTexture(cached);
+                } else {
+                    this._animCache = this._animCache || new Map();
+                    this._animLoader = this._animLoader || new THREE.TextureLoader();
+                    this._animLoader.load(url, (tex) => {
+                        tex.colorSpace = THREE.SRGBColorSpace;
+                        this._animCache.set(url, tex);
+                        // Nel frattempo il fotogramma può essere già cambiato:
+                        // si applica solo se è ancora quello richiesto.
+                        if (this._animUrl === url) this._applyAnimTexture(tex);
+                    }, undefined, () => {
+                        console.warn(`[XRUI] Fotogramma non caricato: ${url}`);
+                    });
+                }
             }
-            return on;
+
+            this.anim.visible = !!this.anim.material.map;
+            this.anim.position.set(0, RAISE * 0.5, 0);
+
+            if (!this._animOn) {
+                this._animOn = true;
+                console.log(`[XRUI] Finestra animata in-world: ${list.length} fotogrammi, primo ${url}`);
+            }
+            return this.anim.visible;
+        },
+
+        /** Mette il fotogramma sul riquadro, con le sue proporzioni. */
+        _applyAnimTexture: function (tex) {
+            this.anim.material.map = tex;
+            this.anim.material.needsUpdate = true;
+
+            const img = tex.image || {};
+            const w = img.width || 16;
+            const h = img.height || 9;
+            let mw = MEDIA_W;
+            let mh = (MEDIA_W * h) / w;
+            if (mh > MEDIA_MAX_H) { mh = MEDIA_MAX_H; mw = (MEDIA_MAX_H * w) / h; }
+            this.anim.scale.set(mw / MEDIA_W, mh / (MEDIA_W * 0.5625), 1);
+            this.anim.visible = true;
         },
 
         // =====================================================================
@@ -763,8 +825,9 @@
             this.tools.forEach((t) => { t.visible = toolsOn; });
 
             // Al lavoro il fumetto si fa da parte e sale; quando c'è un modale
-            // è lui il compito, e torna in mezzo, davanti.
+            // è lui il compito, e torna in mezzo, davanti e dritto.
             this.bubble.position.set(modal ? 0 : -SIDE_X, modal ? 0 : RAISE, 0);
+            this.bubble.rotation.y = modal ? 0 : SIDE_YAW * Math.PI / 180;
 
             // Con una freccia sola, al centro: due pulsanti asimmetrici ai lati
             // si prendono a caso.

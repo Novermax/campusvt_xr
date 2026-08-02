@@ -392,12 +392,16 @@ la chiusura porterebbe due navigazioni in volo.
 
 Durante uno step il centro dello sguardo serve alla macchina: è lì che si deve
 guardare per premere un pulsante o infilare il dito in una feritoia. Quindi
-**fumetto in alto a sinistra, strumenti in basso a destra**, e il mezzo resta
-libero — entrambi dove l'occhio li ritrova senza cercarli.
+**fumetto in alto a sinistra, al limite del cono visivo, strumenti in basso a
+destra**, e il mezzo resta libero — entrambi dove l'occhio li ritrova senza cercarli.
 
 Spostarli solo di lato non bastava: alla stessa altezza continuavano a leggersi
 come un blocco unico che occupa tutta la fascia bassa. Separati anche in
 verticale diventano due cose distinte.
+
+Spinto al bordo, il fumetto va anche **girato verso l'operatore**: un rettangolo
+di testo visto di taglio è testo che non si legge. Costa nulla e restituisce la
+pagina piatta davanti agli occhi.
 
 Il modale è l'eccezione, e giustamente: quando `core/` si ferma ad aspettare
 quella chiusura, il messaggio *è* il compito. Fumetto, video e OK tornano al
@@ -420,14 +424,19 @@ quindi si premeva il pulsante e non succedeva niente di visibile.
 Va al **centro**, non sopra il fumetto: durante uno step il centro è libero
 apposta, ed è lì che si sta già guardando mentre si preme.
 
-`THREE.VideoTexture` si aggiorna da sé, un `<img>` no — e questa cambia `src` a
-ogni fotogramma. Ma non basta accorgersi del cambio: al momento in cui `src`
-viene assegnato **l'immagine non è ancora decodificata**, e caricare allora la
-texture significa caricare il nulla. Con un solo tentativo per fotogramma il
-riquadro resta vuoto per sempre, perché ogni upload arriva un istante troppo
-presto e nessuno lo rifà. Il fotogramma resta quindi "in attesa" e si riprova
-finché non è pronto: `complete` da solo non basta — è vero anche per
-un'immagine fallita — mentre `naturalWidth > 0` dice che c'è davvero qualcosa.
+**Qui, e solo qui, non si rispecchia il DOM.** Con l'`<img>` non ha funzionato
+due volte: la texture va caricata quando l'immagine è decodificata, e indovinare
+quell'istante dall'esterno è fragile — un tentativo troppo presto e il riquadro
+resta vuoto senza che nessuno se ne accorga. Si legge invece lo **stato**:
+`state.images` e `state.currentIndex` dicono quale fotogramma mostrare, e la
+texture la si carica per conto proprio, una volta per fotogramma e tenuta in
+cache. Sono PNG piccoli e già nella cache del browser, quindi il doppio
+caricamento non costa nulla; in cambio non c'è più alcun istante da indovinare.
+Sequenza, direzione, conteggio dei trigger e chiusura restano di `core/`: si
+rispecchia il *cosa*, non il *quando*.
+
+Il riepilogo di `📋 Log XR` distingue i tre anelli della catena — finestra non
+aperta da `core/`, aperta ma senza immagini trovate, aperta e rispecchiata.
 
 ##### La legenda degli strumenti
 
