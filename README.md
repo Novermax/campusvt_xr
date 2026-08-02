@@ -349,7 +349,8 @@ più grosso del porting: si entrava nella scena senza sapere cosa fare, e uno st
 con `message` **bloccava il tutorial per sempre**, perché il pulsante OK che lo
 sblocca era invisibile.
 
-`xr/XRUI.js` la rifà come geometria: un pannello di testo e due o tre pulsanti,
+`xr/XRUI.js` la rifà come geometria: un pannello di testo, il media del modale,
+la legenda degli strumenti e due o tre pulsanti,
 premibili col dito come qualunque comando della macchina — stessi bersagli,
 stesso magnete, stessa distanza di attivazione, perché passano per lo stesso
 `XRInput`.
@@ -381,6 +382,36 @@ per toglierlo di mezzo.
 
 Con un modale aperto esiste **solo** OK: offrire "Avanti" mentre `core/` aspetta
 la chiusura porterebbe due navigazioni in volo.
+
+##### Il media del modale
+
+Immagini e video dei modali compaiono sopra il pannello, con le proporzioni vere.
+La texture arriva **dall'elemento che `core/` ha già creato** dentro
+`#infoModalMedia`: il video lo carica e lo riproduce lui, qui se ne mostrano i
+fotogrammi (`THREE.VideoTexture`). Ricaricarlo per conto nostro significherebbe
+due decodifiche dello stesso file e due punti dove può fallire.
+
+##### La legenda degli strumenti
+
+Sul desktop lo strumento si sceglie dalla legenda in basso a destra; in VR è DOM,
+quindi invisibile. Finora l'unico modo di avere lo strumento giusto era che
+`XRInput` lo equipaggiasse da sé alla pressione — funziona, ma toglie di mezzo un
+pezzo del tutorial: scegliere l'utensile corretto è parte dell'esercizio.
+
+Ora la legenda torna, come colonna di pulsanti alla destra del pannello: icona
+vera dello strumento, bordo acceso su quello attivo, cornice gialla su quello che
+lo step sta chiedendo. Premerne uno chiama lo stesso `ToolsManager.toggleTool()`
+della legenda 2D.
+
+Gli strumenti si scelgono **solo mentre si sta facendo uno step**: col modale
+aperto il desktop blocca tutto ciò che sta dietro, e prima dell'avvio del
+tutorial `StepGatingManager` blocca ogni interazione. In VR vale lo stesso,
+altrimenti si permetterebbe ciò che il resto del sistema vieta.
+
+Con la legenda a disposizione, l'equipaggiamento automatico può essere spento:
+`XRInput.setAutoTool(false)`. Da quel momento un tocco con lo strumento sbagliato
+non fa nulla, esattamente come sul desktop. Resta acceso di default — è la scelta
+che non rompe nulla.
 
 #### Oggetti impugnati
 
@@ -448,6 +479,16 @@ Il bersaglio è il **piano y=0**, non la geometria: `pavimento.glb` è una cupol
 da 519 × 220 × 220 m, e intersecarla darebbe punti ovunque tranne che a terra.
 
 Stato: `XRLocomotion.debugInfo()`.
+
+Fra i bersagli premibili c'è anche l'**`element` dello step**, che pulsante non
+è. Serve per una categoria intera di passi che senza di esso erano *impossibili*
+in VR: quelli con un utensile. Nella grammatica v3 `element` + `tool` + `do :` è
+il flusso utensile — si clicca l'oggetto con lo strumento in mano — e il
+pre-processore, giustamente, non emette alcun `AcceptTrigger_Physical`. Niente
+trigger significa niente evidenziazione, quindi niente `highlightedButtons`: il
+naso dell'elettromandrino non compariva fra i bersagli e il tutorial si fermava
+lì, senza nulla da toccare. Gli step automatici restano invece esclusi: renderli
+premibili vorrebbe dire poter far partire in anticipo un movimento macchina.
 
 L'ordine di priorità replica quello del desktop (`handleModelClick`): figlio
 interattivo, poi ripiego sui pulsanti evidenziati, poi azione sul modello radice.

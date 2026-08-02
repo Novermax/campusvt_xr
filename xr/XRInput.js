@@ -185,6 +185,19 @@
     /** Raggio del disco di contatto, in unità scena. */
     const DOT_RADIUS = 0.008;
 
+    /**
+     * Se equipaggiare da sé lo strumento chiesto dallo step.
+     *
+     * Esisteva perché in VR la legenda degli strumenti — DOM — era invisibile e
+     * senza di essa gli step con utensile non partivano affatto. Ora la legenda
+     * c'è, in-world (vedi XRUI), e scegliere l'utensile giusto può tornare a
+     * essere parte dell'esercizio: spegnendo questo, un tocco con lo strumento
+     * sbagliato non fa nulla, esattamente come sul desktop.
+     *
+     * Resta acceso di default: è la scelta che non rompe nulla.
+     */
+    let AUTO_TOOL = true;
+
     const CURSOR_NEAR = 0xffd21e;   // giallo: stai per toccare
     const CURSOR_SNAP = 0xfff3b0;   // giallo chiaro: il magnete ha agganciato
     const CURSOR_HIT = 0xffffff;    // bianco: contatto avvenuto
@@ -596,6 +609,49 @@
             ].join('|');
         },
 
+        /**
+         * L'oggetto su cui lo step chiede di agire, quando non è un pulsante.
+         *
+         * Serve per una categoria intera di passi che senza questo erano
+         * **impossibili in VR**: quelli con un utensile. Nella grammatica v3,
+         * `element` + `tool` + `do :` è il flusso utensile — l'utente clicca
+         * l'oggetto con lo strumento in mano — e il pre-processore, giustamente,
+         * NON emette alcun `AcceptTrigger_Physical`. Niente trigger significa
+         * niente evidenziazione, quindi niente `highlightedButtons`: il naso
+         * dell'elettromandrino non compariva fra i bersagli e il tutorial si
+         * fermava lì, senza nulla da toccare.
+         *
+         * Sul desktop l'equivalente c'è ed è visibile: il cerchio giallo
+         * `elemento_…` che `UI` disegna proprio su questa mesh.
+         *
+         * @returns {?THREE.Object3D} il nodo da rendere premibile, o null.
+         */
+        _stepElement: function () {
+            const S = window.Scene3D;
+            const U = window.UI;
+            if (!U || !U.tutorialSteps || U.currentStepIndex === undefined) return null;
+
+            const step = U.tutorialSteps[U.currentStepIndex];
+            const p = step && step.properties;
+            if (!p || !p.Elemento) return null;
+
+            // Gli step automatici si eseguono da soli: renderli premibili
+            // vorrebbe dire poter far partire in anticipo un movimento macchina.
+            // Il drag&drop ha una sua strada, e qui non arriverebbe comunque.
+            if (p.AutoExecute === 'true' || p.Autoaction === 'true' || p.DragDrop === 'true') return null;
+
+            const clean = p.Elemento.split('/').pop().replace(/\.(glb|gltf|obj|stl)$/i, '');
+            const model = S.findModelByName ? S.findModelByName(clean) : null;
+            if (!model) return null;
+
+            if (!p.TargetChild) return model;
+
+            let child = null;
+            const wanted = p.TargetChild.trim();
+            model.traverse((o) => { if (!child && o.name === wanted) child = o; });
+            return child || model;
+        },
+
         _collectTargets: function () {
             const S = window.Scene3D;
             const THREE = window.THREE;
@@ -617,6 +673,10 @@
             // I pulsanti evidenziati dallo step sono ciò che il tutorial chiede
             // davvero: hanno la precedenza.
             if (IO && IO.highlightedButtons) for (const [, mesh] of IO.highlightedButtons) add(mesh, 'evidenziato');
+
+            // E l'`element` dello step, che pulsante non è.
+            const stepTarget = this._stepElement();
+            if (stepTarget) add(stepTarget, 'evidenziato');
 
             // Gli oggetti impugnabili sono bersagli a sé: hanno soglia larga e non
             // dipendono dall'essere figli interattivi. Senza questo, prendere il
@@ -1206,6 +1266,7 @@
         _ensureToolForStep: function () {
             const S = window.Scene3D;
             const TM = window.ToolsManager;
+            if (!AUTO_TOOL) return TM && TM.getActiveTool ? TM.getActiveTool() : null;
             if (!S || !TM || typeof TM.toggleTool !== 'function') return null;
             if (typeof S.getCurrentTutorialStep !== 'function') return null;
 
@@ -1314,6 +1375,19 @@
         },
 
         getCursorMode: function () { return CURSOR_MODE; },
+
+        /**
+         * Se lasciare che sia il sistema a equipaggiare lo strumento dello step.
+         * Spento, l'utente deve sceglierlo dalla legenda in-world — e sbagliare
+         * strumento non fa nulla, come sul desktop.
+         */
+        setAutoTool: function (on) {
+            AUTO_TOOL = !!on;
+            console.log(`[XRInput] Strumento automatico: ${AUTO_TOOL ? 'sì' : 'no, lo sceglie l\'utente'}`);
+            return AUTO_TOOL;
+        },
+
+        getAutoTool: function () { return AUTO_TOOL; },
 
         /** Alias storico: acceso = sfera, spento = niente. */
         setCursor: function (on) {

@@ -59,6 +59,14 @@
     const BTN_H = 0.075;
     const BTN_GAP = 0.02;
 
+    /** Riquadro del media (immagine o video) sopra il pannello. */
+    const MEDIA_W = 0.52;
+    const MEDIA_MAX_H = 0.34;
+
+    /** Pulsanti degli strumenti, in colonna alla destra del pannello. */
+    const TOOL_SIZE = 0.10;
+    const TOOL_GAP = 0.016;
+
     const COL_BG = 'rgba(22, 26, 33, 0.94)';
     const COL_EDGE = 'rgba(255, 210, 30, 0.55)';
     const COL_TITLE = '#ffd21e';
@@ -110,6 +118,14 @@
             this.btnOk.position.set(0, y, 0);
             this.buttons.forEach((b) => this.root.add(b));
 
+            // Media del modale: creato una volta, riempito quando serve.
+            this.media = this._makeMediaQuad();
+            this.root.add(this.media);
+
+            this.tools = [];
+            this._toolsSig = '';
+            this._buildTools();
+
             this._state = null;
             this._placed = false;
             this.enabled = true;
@@ -129,7 +145,11 @@
             });
             this.root = null;
             this.panel = null;
+            this.media = null;
+            this._mediaEl = null;
             this.buttons = [];
+            this.tools = [];
+            this._toolsSig = '';
             this.enabled = false;
             this.version++;
         },
@@ -169,6 +189,190 @@
             mesh.userData.label = label;
             this._drawButton(mesh, false);
             return mesh;
+        },
+
+        /**
+         * Riquadro per l'immagine o il video del modale.
+         *
+         * La texture arriva **dall'elemento che `core/` ha già creato** dentro
+         * `#infoModalMedia`: il video lo carica e lo riproduce lui, con i suoi
+         * controlli e la sua gestione degli errori; qui se ne mostrano i
+         * fotogrammi. Ricaricarlo per conto nostro significherebbe due
+         * decodifiche dello stesso file e due punti dove può fallire.
+         */
+        _makeMediaQuad: function () {
+            const THREE = window.THREE;
+            const mesh = new THREE.Mesh(
+                new THREE.PlaneGeometry(MEDIA_W, MEDIA_W * 0.5625),
+                new THREE.MeshBasicMaterial({ transparent: true, toneMapped: false, depthTest: false })
+            );
+            mesh.renderOrder = 998;
+            mesh.visible = false;
+            return mesh;
+        },
+
+        /**
+         * Attacca al riquadro il media del modale, se c'è.
+         * @returns {boolean} true se qualcosa è stato mostrato.
+         */
+        _syncMedia: function (show) {
+            const THREE = window.THREE;
+            const box = document.getElementById('infoModalMedia');
+            const el = show && box ? (box.querySelector('video') || box.querySelector('img')) : null;
+
+            if (!el) {
+                if (this._mediaEl) {
+                    if (this.media.material.map) this.media.material.map.dispose();
+                    this.media.material.map = null;
+                    this.media.material.needsUpdate = true;
+                    this._mediaEl = null;
+                }
+                this.media.visible = false;
+                return false;
+            }
+
+            if (el !== this._mediaEl) {
+                if (this.media.material.map) this.media.material.map.dispose();
+                const tex = el.tagName === 'VIDEO'
+                    ? new THREE.VideoTexture(el)
+                    : new THREE.Texture(el);
+                tex.colorSpace = THREE.SRGBColorSpace;
+                if (el.tagName !== 'VIDEO') tex.needsUpdate = true;
+                this.media.material.map = tex;
+                this.media.material.needsUpdate = true;
+                this._mediaEl = el;
+            }
+
+            // Proporzioni vere del media, non un rettangolo deciso a priori:
+            // un video 16:9 stirato in 4:3 si nota subito.
+            const w = el.videoWidth || el.naturalWidth || 16;
+            const h = el.videoHeight || el.naturalHeight || 9;
+            let mw = MEDIA_W;
+            let mh = (MEDIA_W * h) / w;
+            if (mh > MEDIA_MAX_H) { mh = MEDIA_MAX_H; mw = (MEDIA_MAX_H * w) / h; }
+            this.media.scale.set(mw / MEDIA_W, mh / (MEDIA_W * 0.5625), 1);
+            this.media.position.set(0, PANEL_H / 2 + mh / 2 + BTN_GAP, 0);
+            this.media.visible = true;
+            return true;
+        },
+
+        // =====================================================================
+        // Strumenti
+        // =====================================================================
+
+        /*
+         * Sul desktop lo strumento si sceglie dalla legenda in basso a destra.
+         * In VR quella legenda è DOM, quindi invisibile: finora l'unico modo di
+         * avere lo strumento giusto era che `XRInput` lo equipaggiasse da sé al
+         * momento della pressione. Funziona, ma toglie di mezzo un pezzo del
+         * tutorial — scegliere l'utensile corretto è parte dell'esercizio.
+         *
+         * Qui la legenda torna, come colonna di pulsanti alla destra del
+         * pannello: icona vera dello strumento, bordo acceso su quello attivo,
+         * cornice gialla su quello che lo step sta chiedendo.
+         */
+        _buildTools: function () {
+            const THREE = window.THREE;
+            const R = window.ToolRegistry;
+            const list = (R && typeof R.getAllTools === 'function' ? R.getAllTools() : []) || [];
+            const sig = list.map((t) => t && t.id).join(',');
+            if (sig === this._toolsSig) return;
+            this._toolsSig = sig;
+
+            this.tools.forEach((t) => {
+                this.root.remove(t);
+                t.geometry.dispose();
+                if (t.material.map) t.material.map.dispose();
+                t.material.dispose();
+                if (t.userData.icon) {
+                    t.remove(t.userData.icon);
+                    t.userData.icon.geometry.dispose();
+                    if (t.userData.icon.material.map) t.userData.icon.material.map.dispose();
+                    t.userData.icon.material.dispose();
+                }
+            });
+            this.tools = [];
+
+            const loader = new THREE.TextureLoader();
+            const x = PANEL_W / 2 + TOOL_SIZE / 2 + TOOL_GAP * 2;
+            const total = list.length * TOOL_SIZE + (list.length - 1) * TOOL_GAP;
+
+            list.forEach((tool, i) => {
+                if (!tool) return;
+                const btn = this._makeQuad(TOOL_SIZE, TOOL_SIZE, 192, 192);
+                btn.name = `XRUI_tool_${tool.id}`;
+                btn.userData.xrUiAction = `tool:${tool.id}`;
+                btn.userData.tool = tool;
+                btn.position.set(x, total / 2 - TOOL_SIZE / 2 - i * (TOOL_SIZE + TOOL_GAP), 0);
+                btn.visible = !!this._toolsOn;
+                this._drawToolFrame(btn, false, false);
+
+                // L'icona sta su un quad suo, davanti alla cornice: è un PNG
+                // con trasparenza, e comporlo dentro il canvas vorrebbe dire
+                // aspettarne il caricamento prima di poter disegnare la cornice.
+                if (tool.icon) {
+                    const icon = new THREE.Mesh(
+                        new THREE.PlaneGeometry(TOOL_SIZE * 0.62, TOOL_SIZE * 0.62),
+                        new THREE.MeshBasicMaterial({ transparent: true, toneMapped: false, depthTest: false })
+                    );
+                    icon.renderOrder = 999;
+                    icon.position.z = 0.001;
+                    loader.load(tool.icon, (tex) => {
+                        tex.colorSpace = THREE.SRGBColorSpace;
+                        icon.material.map = tex;
+                        icon.material.needsUpdate = true;
+                    }, undefined, () => {
+                        console.warn(`[XRUI] Icona non caricata: ${tool.icon}`);
+                    });
+                    btn.add(icon);
+                    btn.userData.icon = icon;
+                }
+
+                this.root.add(btn);
+                this.tools.push(btn);
+            });
+
+            if (this.tools.length) console.log(`[XRUI] Strumenti in-world: ${sig}`);
+            this.version++;
+        },
+
+        /** Cornice del pulsante strumento: attivo, richiesto, o nessuno dei due. */
+        _drawToolFrame: function (btn, active, required) {
+            const c = btn.userData.canvas;
+            const g = c.getContext('2d');
+            g.clearRect(0, 0, c.width, c.height);
+
+            this._roundRect(g, 6, 6, c.width - 12, c.height - 12, 24);
+            g.fillStyle = active ? 'rgba(255, 210, 30, 0.30)' : COL_BTN;
+            g.fill();
+            g.lineWidth = required || active ? 9 : 4;
+            g.strokeStyle = active ? COL_BTN_ON : (required ? COL_EDGE : 'rgba(255,255,255,0.20)');
+            g.stroke();
+
+            btn.userData.tex.needsUpdate = true;
+            btn.userData.frame = `${active}|${required}`;
+        },
+
+        /** Aggiorna le cornici quando cambia lo strumento attivo o richiesto. */
+        _syncTools: function () {
+            const TM = window.ToolsManager;
+            const S = window.Scene3D;
+            if (!this.tools.length) return;
+
+            const active = TM && TM.getActiveTool ? TM.getActiveTool() : null;
+            let required = null;
+            if (S && typeof S.getCurrentTutorialStep === 'function' && typeof S.getRequiredToolForStep === 'function') {
+                const st = S.getCurrentTutorialStep();
+                if (st) required = S.getRequiredToolForStep(st);
+            }
+
+            this.tools.forEach((btn) => {
+                const id = btn.userData.tool.id;
+                const want = `${id === active}|${id === required}`;
+                if (btn.userData.frame !== want) {
+                    this._drawToolFrame(btn, id === active, id === required);
+                }
+            });
         },
 
         // =====================================================================
@@ -356,6 +560,16 @@
                 this._applyButtons(st);
             }
 
+            // Il media va riletto anche a testo invariato: il video di core
+            // arriva un istante dopo il messaggio, e le sue dimensioni ancora
+            // dopo, quando il primo fotogramma è decodificato.
+            this._syncMedia(st.mode === 'modal');
+
+            // Gli strumenti dipendono dallo scenario, che può cambiare senza
+            // che cambi nulla del testo.
+            this._buildTools();
+            this._syncTools();
+
             this._place();
         },
 
@@ -369,13 +583,23 @@
             const prev = !modal && st.mode === 'step' && st.idx > 0;
             const next = !modal && st.mode === 'step';
 
+            // Gli strumenti si scelgono solo mentre si sta facendo uno step.
+            // Con un modale aperto il desktop blocca tutto ciò che sta dietro,
+            // e prima dell'avvio del tutorial `StepGatingManager` blocca ogni
+            // interazione: qui vale lo stesso, altrimenti la VR permetterebbe
+            // cose che il resto del sistema vieta.
+            const toolsOn = st.mode === 'step';
+
             const changed = this.btnOk.visible !== modal
                 || this.btnPrev.visible !== prev
-                || this.btnNext.visible !== next;
+                || this.btnNext.visible !== next
+                || this._toolsOn !== toolsOn;
 
             this.btnOk.visible = modal;
             this.btnPrev.visible = prev;
             this.btnNext.visible = next;
+            this._toolsOn = toolsOn;
+            this.tools.forEach((t) => { t.visible = toolsOn; });
 
             // Con una freccia sola, al centro: due pulsanti asimmetrici ai lati
             // si prendono a caso.
@@ -437,7 +661,7 @@
         /** Bersagli premibili, per XRInput. */
         targets: function () {
             if (!this.enabled || !this._visible) return null;
-            return this.buttons.filter((b) => b.visible);
+            return this.buttons.concat(this.tools).filter((b) => b.visible);
         },
 
         /**
@@ -453,6 +677,20 @@
         activate: function (mesh) {
             const action = mesh && mesh.userData && mesh.userData.xrUiAction;
             if (!action) return false;
+
+            // Strumento: stessa strada della legenda 2D, `toggleTool` è
+            // esclusivo e idempotente.
+            if (action.indexOf('tool:') === 0) {
+                const id = action.slice(5);
+                const TM = window.ToolsManager;
+                if (TM && typeof TM.toggleTool === 'function') {
+                    TM.toggleTool(id);
+                    this._syncTools();
+                    console.log(`[XRUI] Strumento scelto: ${id}`);
+                    return true;
+                }
+                return false;
+            }
 
             this._flash(mesh);
 
