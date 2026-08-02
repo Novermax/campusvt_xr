@@ -104,6 +104,13 @@
     let SNAP_STRENGTH = 0.95;
 
     /**
+     * Chi gode dell'assistenza magnetica: l'`element` chiesto dallo step e i
+     * pulsanti del pannello in-world. Sono le due cose che il tutorial sta
+     * davvero chiedendo di premere; tutto il resto resta a soglia secca.
+     */
+    const GUIDED_KINDS = new Set(['evidenziato', 'ui']);
+
+    /**
      * Aggancio: quanto può vagare il dito prima che la mano torni libera.
      *
      * Quando il contatto scatta, la mano DISEGNATA si ferma: resta dov'era nel
@@ -224,6 +231,7 @@
             this.candidates = [];
             this._lastRebuild = 0;
 
+            if (window.XRUI) window.XRUI.init(xrSession);
             if (window.XRLocomotion) window.XRLocomotion.init(xrSession, this);
             if (window.XRHold) window.XRHold.attach(xrSession, this);
 
@@ -236,6 +244,7 @@
             // originale finché le ancore esistono ancora.
             if (window.XRHold) window.XRHold.detach();
             if (window.XRLocomotion) window.XRLocomotion.dispose();
+            if (window.XRUI) window.XRUI.dispose();
             this.sources.forEach((s) => {
                 if (s.controller.parent) s.controller.parent.remove(s.controller);
                 if (s.handObj && s.handObj.parent) s.handObj.parent.remove(s.handObj);
@@ -549,6 +558,7 @@
                 IO && IO.highlightedButtons ? IO.highlightedButtons.size : 0,
                 HS && HS.currentlyHeldList ? HS.currentlyHeldList.length : 0,
                 U && U.currentStepIndex !== undefined ? U.currentStepIndex : -1,
+                window.XRUI ? window.XRUI.version : 0,
             ].join('|');
         },
 
@@ -588,6 +598,12 @@
                 }
             }
 
+            // I pulsanti del pannello in-world: si premono col dito come tutto
+            // il resto, quindi passano di qui e non da un sistema a parte.
+            const UIX = window.XRUI;
+            const uiTargets = UIX && UIX.targets ? UIX.targets() : null;
+            if (uiTargets) for (const m of uiTargets) add(m, 'ui');
+
             // Poi tutti i figli interattivi dei modelli caricati.
             (S.loadedModels || []).forEach((m) => {
                 m.traverse((o) => { if (o.isMesh && o.userData && o.userData.interactive) add(o, 'interattivo'); });
@@ -612,7 +628,7 @@
          */
         _radiusFor: function (c) {
             if (c.kind === 'impugnabile') return GRAB_ENTER;
-            if (c.kind === 'evidenziato') return POKE_ENTER * (1 - this._assistFor(c, POKE_ENTER));
+            if (GUIDED_KINDS.has(c.kind)) return POKE_ENTER * (1 - this._assistFor(c, POKE_ENTER));
             return POKE_ENTER;
         },
 
@@ -626,7 +642,7 @@
          *          sente come un'attrazione e non come uno scatto.
          */
         _assistFor: function (c, dist) {
-            if (!c || c.kind !== 'evidenziato') return 0;
+            if (!c || !GUIDED_KINDS.has(c.kind)) return 0;
             if (SNAP_STRENGTH <= 0 || dist >= SNAP_RANGE) return 0;
             const u = 1 - dist / SNAP_RANGE;
             return u * u * (3 - 2 * u) * SNAP_STRENGTH;
@@ -826,6 +842,7 @@
 
             this._updateHighlights(now);
 
+            if (window.XRUI) window.XRUI.update();
             if (window.InteractiveObject3D) window.InteractiveObject3D.handleHover(hovered);
             if (window.XRLocomotion) window.XRLocomotion.update(this.sources);
         },
@@ -1043,6 +1060,16 @@
         _dispatch: function (mesh, s) {
             const S = window.Scene3D;
             const IO = window.InteractiveObject3D;
+
+            // Il pannello in-world per primo: è sopra la scena, non dentro, e
+            // non deve passare per il dispatch dei modelli.
+            if (mesh.userData && mesh.userData.xrUiAction && window.XRUI) {
+                if (window.XRUI.activate(mesh)) {
+                    this._confirm(s);
+                    this._note(mesh, `pannello: ${mesh.userData.xrUiAction}`);
+                    return;
+                }
+            }
 
             if (IO && mesh.userData && mesh.userData.interactive) {
                 if (IO.handleClick(mesh, { isXR: true, isPoke: true, point: s.tip.clone() })) {

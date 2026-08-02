@@ -49,6 +49,7 @@ campusvt_xr/
 ├── xr/                        layer WebXR — l'unico codice applicativo di questo repo
 │   ├── XRSession.js           sonda capability, sessione immersiva, XRRig, loop
 │   ├── XRInput.js             pressione a contatto col dito
+│   ├── XRUI.js                fumetto e pulsanti del tutorial, in-world
 │   ├── XRLocomotion.js        teleport e rotazione a scatti
 │   ├── XRButton.js            pulsante entra/esci VR, scala, altezza
 │   └── xr.css
@@ -323,6 +324,48 @@ frazione trascurabile, il collo di bottiglia non è nell'interazione: è nel
 rendering della scena o fuori dalla pagina. `XRSession.frameReport()` dà gli
 stessi numeri dalla console.
 
+#### L'interfaccia del tutorial, dentro il mondo
+
+In `immersive-vr` il DOM non esiste: il compositore mostra solo ciò che la pagina
+disegna in WebGL. Tutta l'interfaccia di CVT — fumetto con la descrizione dello
+step, contatore, modali informativi — è HTML, quindi in VR spariva. Era il buco
+più grosso del porting: si entrava nella scena senza sapere cosa fare, e uno step
+con `message` **bloccava il tutorial per sempre**, perché il pulsante OK che lo
+sblocca era invisibile.
+
+`xr/XRUI.js` la rifà come geometria: un pannello di testo e due o tre pulsanti,
+premibili col dito come qualunque comando della macchina — stessi bersagli,
+stesso magnete, stessa distanza di attivazione, perché passano per lo stesso
+`XRInput`.
+
+**Rispecchiare, non reimplementare.** Il pannello *legge* il DOM
+(`#stepDescription`, `#stepCurrentNumber`, `#infoModalMessage`, …) e *richiama*
+le stesse funzioni che userebbe il mouse: `UI.nextStep()`, `UI.prevStep()`, e per
+il modale un **click vero** sul vero `#infoModalOkBtn` — è quel click che risolve
+la promise su cui `core/` è fermo. Non è pigrizia: è l'unico modo per non avere
+due verità. La logica del tutorial — quando si può avanzare, cosa succede alla
+chiusura di un modale, quali step sono automatici — vive in `core/` ed è
+intricata; duplicarla qui significherebbe vederla divergere al primo cambiamento
+a monte. Rispecchiando il DOM, invece, ogni modifica futura arriva da sola.
+
+Il testo è un canvas 2D su un quad `MeshBasicMaterial` — la stessa tecnica delle
+schermate PNG, e per lo stesso motivo: il testo non deve essere spento dalle luci
+di scena. Il canvas viene ridisegnato **solo quando il contenuto cambia**:
+rifarlo a ogni frame costerebbe più di tutto il resto del layer. La densità è
+scelta perché il corpo del testo sottenda ~1,6° a un metro, sotto i quali nei
+visori attuali si sgrana.
+
+Il pannello sta un metro davanti e 32 cm sotto la linea dello sguardo, e insegue
+la testa **con calma e solo in imbardata**. Incollato allo sguardo sarebbe
+illeggibile mentre ci si muove; seguendo anche il beccheggio finirebbe in mezzo
+anche guardando in basso verso una vite. Con il solo yaw resta un oggetto
+appoggiato nello spazio, che si ritrova dove ci si aspetta.
+`XRUI.setPlacement(distanza, quantoSotto)` per tararlo, `XRUI.setVisible(false)`
+per toglierlo di mezzo.
+
+Con un modale aperto esiste **solo** OK: offrire "Avanti" mentre `core/` aspetta
+la chiusura porterebbe due navigazioni in volo.
+
 #### Oggetti impugnati
 
 Sul desktop `HoldableSystem` ancora l'oggetto impugnato alla **camera**: giusto
@@ -512,10 +555,10 @@ scenario, o al primo calo di frame rate misurato.
 | 0 | Setup: repo, submodule, build, deploy Pages | ✅ fatto |
 | 1 | Sessione XR: `renderer.xr`, `setAnimationLoop`, XRRig | ✅ fatto |
 | 3 | Input: pressione a contatto col dito | ✅ fatto |
+| 4 | UI del tutorial in-world | ✅ fatto |
 | 7 | Locomozione: teleport, rotazione a scatti | ✅ fatto (anticipata: il poke la richiede) |
-| 4 | UI in-world — in `immersive-vr` il DOM è invisibile | ⏳ prossima |
 | 2 | Pipeline asset | ⏸️ **rimandata** — vedi sotto |
-| 4 | UI in-world (il DOM è invisibile in `immersive-vr`) | ⏳ |
+| 4b | Modali con immagine e video dentro il pannello | ⏳ prossima |
 | 5 | Utensili agganciati al controller + particelle | ⏳ |
 | 6 | Grab & snap col grip | ⏳ |
 | 7 | Locomozione: teleport alle postazioni da `CameraPos` | ⏳ |

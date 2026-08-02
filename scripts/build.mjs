@@ -83,7 +83,7 @@ const XR_STYLES = ['xr/xr.css'];
 // XRLog per primo: intercetta la console, deve esserci prima che gli altri parlino.
 const XR_SCRIPTS = [
     'xr/XRLog.js', 'xr/XRButton.js', 'xr/XRLocomotion.js',
-    'xr/XRHold.js', 'xr/XRInput.js', 'xr/XRSession.js',
+    'xr/XRHold.js', 'xr/XRUI.js', 'xr/XRInput.js', 'xr/XRSession.js',
 ];
 
 /**
