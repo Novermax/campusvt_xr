@@ -607,6 +607,9 @@
                 HS && HS.currentlyHeldList ? HS.currentlyHeldList.length : 0,
                 U && U.currentStepIndex !== undefined ? U.currentStepIndex : -1,
                 window.XRUI ? window.XRUI.version : 0,
+                // L'ancora nasce un istante dopo la presa: senza questo, il
+                // "cosa sta in mano" resterebbe fermo a prima.
+                window.XRHold && window.XRHold.getAnchor && window.XRHold.getAnchor() ? 1 : 0,
             ].join('|');
         },
 
@@ -661,6 +664,20 @@
             const seen = new Set();
             const pool = this.candidates;
 
+            /*
+             * Cosa sta in mano. Serve saperlo qui, non a ogni frame: prendendo
+             * il telecomando, il palmo e il pollice della mano che lo regge
+             * finiscono DENTRO la sua geometria — a un centimetro dai suoi
+             * stessi pulsanti. Senza questa marcatura la presa premeva subito
+             * il tasto di avvio ciclo, e il cambio utensile partiva da solo.
+             */
+            const anchor = window.XRHold && window.XRHold.getAnchor ? window.XRHold.getAnchor() : null;
+            const inHand = (mesh) => {
+                if (!anchor) return false;
+                for (let n = mesh; n; n = n.parent) if (n === anchor) return true;
+                return false;
+            };
+
             const add = (mesh, kind) => {
                 if (!mesh || seen.has(mesh)) return;
                 seen.add(mesh);
@@ -668,7 +685,7 @@
                 // intercambiabili, e ne servono quanti i bersagli.
                 const slot = pool[list.length];
                 const box = slot ? slot.box : new THREE.Box3();
-                list.push({ mesh, kind, box });
+                list.push({ mesh, kind, box, held: inHand(mesh) });
             };
 
             // I pulsanti evidenziati dallo step sono ciò che il tutorial chiede
@@ -891,7 +908,11 @@
                     continue;
                 }
 
-                const { hit, hitTip, near, dist, nearTip } = this._probe(s.tips);
+                const holding = !!(window.XRHold && window.XRHold.getHand
+                    && window.XRHold.getAnchor && window.XRHold.getAnchor()
+                    && window.XRHold.getHand() === s.hand);
+                s._holding = holding;
+                const { hit, hitTip, near, dist, nearTip } = this._probe(s.tips, holding);
 
                 // Isteresi: si esce solo oltre la soglia allargata, così un dito
                 // che trema sul bordo non ripete il comando. Si misura sulla
@@ -981,7 +1002,7 @@
          *          bersaglio toccato e punto della mano che l'ha toccato,
          *          bersaglio vicino, distanza grezza e punto più vicino.
          */
-        _probe: function (tips) {
+        _probe: function (tips, isHoldingHand) {
             let hit = null;
             let hitTip = null;
             let near = null;
@@ -990,6 +1011,11 @@
             let bestNear = Infinity;
 
             for (const c of this.candidates) {
+                // La mano che regge un oggetto non ne preme i pulsanti: li ha
+                // già addosso. Li preme l'altra, che è esattamente il gesto
+                // vero — telecomando in una mano, dito nell'altra.
+                if (c.held && isHoldingHand) continue;
+
                 const radius = this._radiusFor(c);
                 // Basta che UNO dei punti tocchi: un oggetto lo si prende col
                 // palmo o col pollice, non solo con la punta dell'indice.
@@ -1081,6 +1107,9 @@
                 let ref = camPos;
                 let best = Infinity;
                 for (const s of this.sources) {
+                    // La mano che regge l'oggetto è per forza addosso ai suoi
+                    // pulsanti: contarla terrebbe l'anello acceso a fisso.
+                    if (c.held && s._holding) continue;
                     for (const t of s.tips) {
                         const d = box.distanceToPoint(t);
                         if (d < best) { best = d; ref = t; }

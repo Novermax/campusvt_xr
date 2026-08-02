@@ -561,6 +561,14 @@ da 519 × 220 × 220 m, e intersecarla darebbe punti ovunque tranne che a terra.
 
 Stato: `XRLocomotion.debugInfo()`.
 
+**La mano che regge un oggetto non ne preme i pulsanti.** Prendendo il
+telecomando, il palmo e il pollice della mano che lo tiene finiscono *dentro* la
+sua geometria, a un centimetro dai suoi stessi tasti: la presa faceva scattare
+subito l'avvio ciclo, e il cambio utensile partiva da solo senza che nessuno lo
+avesse chiesto. I bersagli che vivono sotto l'ancora di `XRHold` sono quindi
+marcati, e la mano che regge li salta. Li preme l'altra — che è esattamente il
+gesto vero: telecomando in una mano, dito nell'altra.
+
 Fra i bersagli premibili c'è anche l'**`element` dello step**, che pulsante non
 è. Serve per una categoria intera di passi che senza di esso erano *impossibili*
 in VR: quelli con un utensile. Nella grammatica v3 `element` + `tool` + `do :` è

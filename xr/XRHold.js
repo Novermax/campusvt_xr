@@ -376,6 +376,13 @@
 
         getHand: function () { return HOLD_HAND; },
 
+        /**
+         * Il nodo sotto cui vive l'oggetto impugnato, se c'è.
+         * Serve a XRInput per sapere cosa sta in mano: i pulsanti di un oggetto
+         * impugnato non devono essere premibili dalla mano che lo regge.
+         */
+        getAnchor: function () { return this._anchor && this._anchor.parent ? this._anchor : null; },
+
         /** La centratura dipende da rotazione e scala: cambiandole va rifatta. */
         _invalidate: function () {
             [this._anchor, this._head].forEach((a) => {
