@@ -34,6 +34,9 @@
     const COLOR_IDLE = 0x9fb4c7;     // grigio: non stai mirando a terra
     const COLOR_UI = 0xffd21e;       // giallo: stai puntando un comando del pannello
 
+    /** Quanto va tenuto fermo il raggio su un comando prima che sia premibile. */
+    const UI_DWELL_MS = 330;
+
     const XRLocomotion = {
         enabled: false,
         xr: null,
@@ -133,9 +136,15 @@
                     ray.visible = true;
                     this._stretch(ray, ui.distance);
                     ray.material.color.setHex(COLOR_UI);
-                    if (!this._uiHit) { this._uiHit = ui.mesh; this._uiSource = s; }
+
+                    // Armato solo dopo un attimo fermo sullo stesso comando.
+                    const armed = this._dwell(s, ui.mesh);
+                    ray.material.opacity = armed ? 0.95 : 0.35;
+                    if (armed && !this._uiHit) { this._uiHit = ui.mesh; this._uiSource = s; }
                     continue;
                 }
+                this._dwell(s, null);
+                ray.material.opacity = 0.5;
 
                 const point = this._aimFloor(s);
                 ray.visible = true;
@@ -159,6 +168,34 @@
             }
 
             this._pollSnapTurn(sources);
+        },
+
+        /**
+         * Il comando puntato è fermo da abbastanza per poterlo premere?
+         *
+         * Senza questa attesa il puntamento è pericoloso. Il raggio spazza la
+         * scena a ogni movimento del braccio, e un pinch fatto per teleportarsi
+         * preme qualunque comando gli capiti sotto in quell'istante: basta che
+         * "Avanti" passi davanti al raggio e lo step salta, portandosi via —
+         * per dire — la spruzzata di spray. Un comando che si attiva di
+         * passaggio è peggio di un comando irraggiungibile.
+         *
+         * Restare fermi un terzo di secondo sullo stesso bersaglio è invece un
+         * gesto che non si fa per caso. Finché non è armato il raggio resta
+         * pallido: si vede che si sta puntando qualcosa, ma non ancora che lo
+         * si può premere.
+         *
+         * @returns {boolean} true se il comando è armato.
+         */
+        _dwell: function (s, mesh) {
+            const now = performance.now();
+            if (!mesh) { s._uiDwellOn = null; return false; }
+            if (s._uiDwellOn !== mesh) {
+                s._uiDwellOn = mesh;
+                s._uiDwellSince = now;
+                return false;
+            }
+            return now - s._uiDwellSince >= UI_DWELL_MS;
         },
 
         /**

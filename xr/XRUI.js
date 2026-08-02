@@ -91,7 +91,18 @@
      * Il modale è l'eccezione, e giustamente: quando `core/` si ferma ad
      * aspettare, quello È il compito. Torna al centro, col video e l'OK.
      */
-    const SIDE_X = 0.30;
+    const SIDE_X = 0.34;
+
+    /**
+     * Quanto il fumetto sale, mentre gli strumenti restano in basso.
+     *
+     * Spostarlo di lato non bastava: fumetto e strumenti restavano alla stessa
+     * altezza e continuavano a leggersi come un blocco unico che occupa tutta
+     * la fascia bassa. Separati anche in verticale diventano due cose distinte —
+     * il testo in alto a sinistra, dove si legge senza che dia fastidio; gli
+     * strumenti in basso a destra, dove la mano li raggiunge.
+     */
+    const RAISE = 0.40;
 
     const COL_BG = 'rgba(22, 26, 33, 0.94)';
     const COL_EDGE = 'rgba(255, 210, 30, 0.55)';
@@ -637,9 +648,9 @@
             this._toolsOn = toolsOn;
             this.tools.forEach((t) => { t.visible = toolsOn; });
 
-            // Al lavoro il fumetto si fa da parte; quando c'è un modale è lui
-            // il compito, e torna in mezzo.
-            this.bubble.position.x = modal ? 0 : -SIDE_X;
+            // Al lavoro il fumetto si fa da parte e sale; quando c'è un modale
+            // è lui il compito, e torna in mezzo, davanti.
+            this.bubble.position.set(modal ? 0 : -SIDE_X, modal ? 0 : RAISE, 0);
 
             // Con una freccia sola, al centro: due pulsanti asimmetrici ai lati
             // si prendono a caso.

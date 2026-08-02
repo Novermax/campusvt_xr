@@ -392,8 +392,12 @@ la chiusura porterebbe due navigazioni in volo.
 
 Durante uno step il centro dello sguardo serve alla macchina: è lì che si deve
 guardare per premere un pulsante o infilare il dito in una feritoia. Quindi
-**fumetto a sinistra, strumenti a destra**, e il mezzo resta libero — entrambi
-dove l'occhio li ritrova senza cercarli.
+**fumetto in alto a sinistra, strumenti in basso a destra**, e il mezzo resta
+libero — entrambi dove l'occhio li ritrova senza cercarli.
+
+Spostarli solo di lato non bastava: alla stessa altezza continuavano a leggersi
+come un blocco unico che occupa tutta la fascia bassa. Separati anche in
+verticale diventano due cose distinte.
 
 Il modale è l'eccezione, e giustamente: quando `core/` si ferma ad aspettare
 quella chiusura, il messaggio *è* il compito. Fumetto, video e OK tornano al
@@ -490,6 +494,14 @@ mirare.
 Puntando un comando il raggio diventa **giallo** e si ferma sul pulsante, così si
 vede cosa si sta per premere; il pinch preme, invece di teleportare. Nessuna
 destinazione viene proposta finché si punta il pannello.
+
+**Ma non si preme di passaggio.** Il raggio spazza la scena a ogni movimento del
+braccio, e un pinch fatto per teleportarsi premerebbe qualunque comando gli
+capiti sotto in quell'istante: basta che "Avanti" attraversi il raggio e lo step
+salta, portandosi via — per dire — la spruzzata di spray. Un comando che si
+attiva di passaggio è peggio di un comando irraggiungibile. Serve quindi un terzo
+di secondo fermi sullo stesso bersaglio, che è un gesto che non si fa per caso;
+finché non è armato il raggio resta pallido.
 
 #### Spostarsi: teleport
 
