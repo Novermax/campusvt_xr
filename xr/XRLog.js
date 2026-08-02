@@ -127,6 +127,16 @@
 
             add('WebXR', X.supported ? 'disponibile' : 'NON disponibile', !!X.supported);
             add('Scala mondo', X.getWorldScale().toFixed(2) + '×', true);
+
+            // Fluidità: la domanda "perché perde la sincronia" si risolve qui.
+            // Se i frame sforano ma il layer XR costa poco, il collo di
+            // bottiglia non è nell'interazione.
+            const f = X.frameReport && X.frameReport();
+            if (f) {
+                add('Frame', `${f.medio} medi, peggiore ${f.peggiore}`, parseFloat(f.medio) <= X._frameBudgetMs);
+                add('Frame lunghi', `${f.lunghi} oltre ${X._frameBudgetMs} ms`, parseFloat(f.lunghi) < 5);
+                add('Costo layer XR', f.layerXR, parseFloat(f.layerXR) < 2);
+            }
             add('Sfondo', X._prevBackground !== undefined ? 'azzurro applicato' : 'non applicato (mai entrato in VR?)',
                 X._prevBackground !== undefined);
 

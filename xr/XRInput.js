@@ -459,13 +459,13 @@
             s.tips.length = 0;
 
             if (joints) {
-                TIP_JOINTS.forEach((name, i) => {
-                    const j = joints[name];
-                    if (!j || !j.visible) return;
+                for (let i = 0; i < TIP_JOINTS.length; i++) {
+                    const j = joints[TIP_JOINTS[i]];
+                    if (!j || !j.visible) continue;
                     if (!s._tipVecs[i]) s._tipVecs[i] = new THREE.Vector3();
                     s._tipVecs[i].setFromMatrixPosition(j.matrixWorld);
                     s.tips.push(s._tipVecs[i]);
-                });
+                }
             }
 
             if (s.tips.length) {
@@ -493,21 +493,65 @@
 
         /**
          * Elenco di ciò che si può premere, con il proprio bounding box in
-         * coordinate mondo. Ricostruito a intervalli e non a ogni frame:
-         * `Box3.setFromObject` non è gratis, e i bersagli cambiano solo al
-         * cambio di step o di evidenziazione.
+         * coordinate mondo.
+         *
+         * Due lavori diversi, con due frequenze diverse.
+         *
+         * **Quali** mesh sono bersaglio cambia solo al cambio di step, di
+         * evidenziazione o di modelli caricati: scoprirlo costa un `traverse`
+         * di tutta la scena — che su una macchina da 892k triangoli non è
+         * gratis — e rifarlo ogni 400 ms era uno spreco a intervalli regolari,
+         * cioè il modo migliore per produrre micro-scatti periodici. Ora si
+         * rifà solo quando una firma economica cambia.
+         *
+         * **Dove** stanno va invece riletto: gli oggetti si muovono, le porte
+         * si aprono. I `Box3` si ricalcolano ogni 400 ms, ma sugli stessi
+         * oggetti di prima — riusati, non riallocati: un ciclo di GC dentro un
+         * frame XR si vede.
          */
         _rebuildCandidates: function () {
+            const sig = this._structureSignature();
+            if (sig !== this._structureSig) {
+                this._structureSig = sig;
+                this._collectTargets();
+            }
+            for (const c of this.candidates) c.box.setFromObject(c.mesh);
+        },
+
+        /**
+         * Firma economica di ciò che determina l'elenco dei bersagli. Confronta
+         * numeri, non contenuti: deve costare molto meno del `traverse` che
+         * evita.
+         */
+        _structureSignature: function () {
+            const S = window.Scene3D;
+            const IO = window.InteractiveObject3D;
+            const HS = window.HoldableSystem;
+            const U = window.UI;
+            return [
+                (S.loadedModels || []).length,
+                IO && IO.highlightedButtons ? IO.highlightedButtons.size : 0,
+                HS && HS.currentlyHeldList ? HS.currentlyHeldList.length : 0,
+                U && U.currentStepIndex !== undefined ? U.currentStepIndex : -1,
+            ].join('|');
+        },
+
+        _collectTargets: function () {
             const S = window.Scene3D;
             const THREE = window.THREE;
             const IO = window.InteractiveObject3D;
             const list = [];
             const seen = new Set();
+            const pool = this.candidates;
 
             const add = (mesh, kind) => {
                 if (!mesh || seen.has(mesh)) return;
                 seen.add(mesh);
-                list.push({ mesh, kind, box: new THREE.Box3().setFromObject(mesh) });
+                // Riusa il box dello slot omologo: gli oggetti Box3 sono
+                // intercambiabili, e ne servono quanti i bersagli.
+                const slot = pool[list.length];
+                const box = slot ? slot.box : new THREE.Box3();
+                list.push({ mesh, kind, box });
             };
 
             // I pulsanti evidenziati dallo step sono ciò che il tutorial chiede
@@ -534,6 +578,7 @@
             });
 
             this.candidates = list;
+            console.log(`[XRInput] Bersagli ricostruiti: ${list.length}.`);
         },
 
         /**
@@ -827,7 +872,14 @@
         _updateHighlights: function (now) {
             const THREE = window.THREE;
             const S = window.Scene3D;
-            const wanted = this.candidates.filter((c) => c.kind === 'evidenziato' || c.kind === 'impugnabile');
+
+            // Array riusato: `filter` qui costava un array nuovo a ogni frame,
+            // cioè spazzatura da raccogliere durante la sessione.
+            const wanted = this._wanted || (this._wanted = []);
+            wanted.length = 0;
+            for (const c of this.candidates) {
+                if (c.kind === 'evidenziato' || c.kind === 'impugnabile') wanted.push(c);
+            }
 
             while (this._rings.length < wanted.length) {
                 const ring = new THREE.Mesh(
@@ -846,9 +898,12 @@
             // Pulsazione lenta: attira lo sguardo senza diventare fastidiosa.
             const pulse = 0.72 + 0.28 * Math.sin(now / 320);
 
-            this._rings.forEach((ring, i) => {
+            // Ciclo indicizzato, non `forEach`: la callback sarebbe una closure
+            // creata a ogni frame.
+            for (let i = 0; i < this._rings.length; i++) {
+                const ring = this._rings[i];
                 const c = wanted[i];
-                if (!c) { ring.visible = false; return; }
+                if (!c) { ring.visible = false; continue; }
 
                 const box = c.box;
 
@@ -894,7 +949,7 @@
                 let glow = best < SNAP_RANGE ? Math.max(0, 1 - best / SNAP_RANGE) : 0;
                 // Agganciato: acceso pieno, senza pulsare. Il bersaglio sta
                 // trattenendo il dito, e si deve vedere che è successo qualcosa.
-                if (this.sources.some((s) => s.latch && s.latch.cand === c)) glow = 1;
+                for (const s of this.sources) if (s.latch && s.latch.cand === c) { glow = 1; break; }
 
                 // Scala quasi ferma, opacità pulsante: un anello che cambia
                 // dimensione sembra allontanarsi e rende difficile mirare.
@@ -902,7 +957,7 @@
                 ring.lookAt(camPos);
                 ring.material.opacity = (0.22 + 0.26 * pulse) + glow * 0.45;
                 ring.visible = true;
-            });
+            }
         },
 
         _clearHighlights: function () {

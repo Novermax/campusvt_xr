@@ -248,6 +248,42 @@ com'è finito l'ultimo tocco. Lo stesso esito compare nel riepilogo di
 `📋 Log XR`, che è l'unico canale leggibile dal visore: se un elemento non
 reagisce, dice se è stato toccato e se il tocco è servito a qualcosa.
 
+#### Fluidità: cosa gira davvero a ogni frame
+
+In `immersive-vr` il budget è **13,9 ms** a frame (72 Hz). Sforarlo non produce
+solo un calo di fps: il compositore riproietta l'ultimo fotogramma e il mondo
+"scivola" rispetto alla testa — è quello che si percepisce come perdita di
+sincronia.
+
+Due interventi, in ordine di peso.
+
+**I cerchi DOM vengono spenti in VR.** `HighlightCircleManager` tiene un
+`setInterval` a 60 Hz che, per ogni cerchio attivo, fa `updateMatrixWorld`,
+costruisce un `Box3` nuovo, proietta in 2D, legge `canvas.clientWidth` — che
+**forza un reflow** — e riscrive `style.left/top`. In sessione immersiva quei
+cerchi non si vedono nemmeno. Peggio: girando su un timer indipendente dal frame
+XR, quel lavoro cade a metà frame. Layout forzato e scritture di stile a 60 Hz
+sono esattamente ciò che fa sforare la scadenza. In VR il loro compito lo fanno
+gli anelli 3D, quindi il loop viene fermato all'ingresso e ripreso all'uscita.
+
+**L'elenco dei bersagli si ricostruisce solo quando cambia.** Scoprire *quali*
+mesh sono premibili costa un `traverse` di tutta la scena; rifarlo ogni 400 ms
+su una macchina da 892k triangoli è uno spreco a intervalli regolari — cioè il
+modo migliore per produrre micro-scatti periodici. Ora si rifà solo quando
+cambia una firma economica (modelli caricati, pulsanti evidenziati, oggetti in
+mano, indice dello step). I `Box3` invece si rileggono ogni 400 ms, perché le
+porte si aprono e gli oggetti si muovono — ma sugli stessi oggetti di prima,
+riusati e non riallocati: un ciclo di GC dentro un frame XR si vede. Per lo
+stesso motivo sono spariti `filter` e `forEach` dal percorso per-frame.
+
+**Misurare invece di indovinare.** Dentro il Quest non si apre un profiler, e
+"perde la sincronia" ha molte cause possibili. Il loop misura durata del frame,
+quota di frame lunghi e quanto ne consuma il layer XR; il riepilogo di
+`📋 Log XR` li mostra in chiaro. Se i frame sforano ma il layer XR costa una
+frazione trascurabile, il collo di bottiglia non è nell'interazione: è nel
+rendering della scena o fuori dalla pagina. `XRSession.frameReport()` dà gli
+stessi numeri dalla console.
+
 #### Oggetti impugnati
 
 Sul desktop `HoldableSystem` ancora l'oggetto impugnato alla **camera**: giusto

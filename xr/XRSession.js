@@ -220,6 +220,8 @@
                 session.addEventListener('end', this._onSessionEnd.bind(this), { once: true });
 
                 this._suspendTouchSystem();
+                this._suspendDomCircles();
+                this._resetFrameMeter();
                 this._applySkyBackground();
                 this._placeRigAtCamera();
                 if (window.XRInput) window.XRInput.init(this);
@@ -261,6 +263,7 @@
             this._restoreBackground();
             this._detachRig();
             this._restoreTouchSystem();
+            this._restoreDomCircles();
             // Il loop resta nostro (setAnimationLoop continua a girare via rAF):
             // riprenderlo ogni volta rischierebbe due loop concorrenti.
             console.log('[XR] Sessione terminata, ritorno alla vista desktop.');
@@ -297,18 +300,81 @@
             };
 
             S.renderer.setAnimationLoop(function (time) {
+                const t0 = self.isPresenting ? performance.now() : 0;
                 if (self.isPresenting) {
                     self._guardRig();
                     self._pollScaleTuning(time);
                     self._sampleHead();
                     if (window.XRInput) window.XRInput.update();
                 }
+                const t1 = self.isPresenting ? performance.now() : 0;
                 self._inFrame = true;
                 try { original(); } finally { self._inFrame = false; }
+                if (self.isPresenting) self._meterFrame(t0, t1, performance.now());
             });
 
             this._loopOwned = true;
             console.log('[XR] Loop di render passato a renderer.setAnimationLoop (richiesto da WebXR).');
+        },
+
+        // =====================================================================
+        // Misura del frame
+        // =====================================================================
+
+        /*
+         * Perché misurare, invece di ottimizzare a intuito.
+         *
+         * "Perde la sincronia" ha molte cause possibili — lavoro nostro, lavoro
+         * di core, GC, tracking del visore — e dentro il Quest non c'è modo di
+         * aprire un profiler. Qui si contano tre cose sole, che bastano a
+         * separare i casi:
+         *
+         *  - quanto dura l'intero frame (se sfora, il compositore riproietta e
+         *    il mondo "scivola");
+         *  - quanto ne consuma il layer XR;
+         *  - quanti frame hanno sforato, e il peggiore.
+         *
+         * Se il layer XR è una frazione trascurabile del frame ma i frame
+         * sforano lo stesso, il problema non è nei nostri calcoli: è a valle,
+         * nel rendering della scena o fuori dalla pagina.
+         */
+
+        /** Soglia oltre cui un frame è "lungo": 72 Hz vuol dire 13,9 ms. */
+        _frameBudgetMs: 13.9,
+
+        _resetFrameMeter: function () {
+            this._meter = { n: 0, sum: 0, worst: 0, over: 0, xrSum: 0, xrWorst: 0 };
+        },
+
+        /**
+         * @param {number} t0 inizio dell'aggiornamento XR.
+         * @param {number} t1 fine dell'aggiornamento XR (inizio del render).
+         * @param {number} t2 fine del frame.
+         */
+        _meterFrame: function (t0, t1, t2) {
+            const m = this._meter;
+            if (!m) return;
+            const total = t2 - t0;
+            const xr = t1 - t0;
+            m.n++;
+            m.sum += total;
+            m.xrSum += xr;
+            if (total > m.worst) m.worst = total;
+            if (xr > m.xrWorst) m.xrWorst = xr;
+            if (total > this._frameBudgetMs) m.over++;
+        },
+
+        /** Riepilogo in chiaro, per il pannello leggibile dal visore. */
+        frameReport: function () {
+            const m = this._meter;
+            if (!m || !m.n) return null;
+            return {
+                frames: m.n,
+                medio: `${(m.sum / m.n).toFixed(1)} ms`,
+                peggiore: `${m.worst.toFixed(0)} ms`,
+                lunghi: `${((m.over / m.n) * 100).toFixed(1)}%`,
+                layerXR: `${(m.xrSum / m.n).toFixed(2)} ms (picco ${m.xrWorst.toFixed(0)})`,
+            };
         },
 
         // =====================================================================
@@ -689,6 +755,40 @@
             if (!T || typeof T.setEnabled !== 'function') return;
             if (this._touchWasEnabled) T.setEnabled(true);
             this._touchWasEnabled = null;
+        },
+
+        /**
+         * Ferma il loop DOM dei cerchi di evidenziazione.
+         *
+         * `HighlightCircleManager` tiene un `setInterval` a 60 Hz che, per ogni
+         * cerchio attivo, fa `updateMatrixWorld`, costruisce un `Box3` nuovo,
+         * proietta in 2D, **legge `canvas.clientWidth`** — che forza un reflow —
+         * e riscrive `style.left/top`. In `immersive-vr` quei cerchi non si
+         * vedono nemmeno: è lavoro interamente sprecato.
+         *
+         * Non è solo sprecato, è dannoso. Gira su un timer indipendente dal
+         * frame XR, quindi cade a metà frame, e layout forzato più scritture di
+         * stile a 60 Hz sono esattamente il genere di lavoro che fa sforare la
+         * scadenza dei 13,8 ms e perdere la sincronia col visore.
+         *
+         * In VR il loro compito lo fanno gli anelli 3D di XRInput.
+         */
+        _suspendDomCircles: function () {
+            const M = window.Scene3D && window.Scene3D.highlightCircleManager;
+            if (!M || typeof M.stopUpdateLoop !== 'function') return;
+            M.stopUpdateLoop();
+            this._circlesSuspended = true;
+            // Nascondili anche: restano fermi sull'ultima posizione calcolata,
+            // e all'uscita dalla VR si riposizionano da soli al primo giro.
+            if (M.circles) M.circles.forEach((c) => { if (c.element) c.element.style.display = 'none'; });
+            console.log('[XR] Cerchi DOM sospesi: in VR li sostituiscono gli anelli 3D.');
+        },
+
+        _restoreDomCircles: function () {
+            const M = window.Scene3D && window.Scene3D.highlightCircleManager;
+            if (!M || !this._circlesSuspended) return;
+            this._circlesSuspended = false;
+            if (typeof M.startUpdateLoop === 'function') M.startUpdateLoop();
         },
 
         // =====================================================================
