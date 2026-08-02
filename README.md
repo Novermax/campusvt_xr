@@ -372,8 +372,13 @@ rifarlo a ogni frame costerebbe più di tutto il resto del layer. La densità è
 scelta perché il corpo del testo sottenda ~1,6° a un metro, sotto i quali nei
 visori attuali si sgrana.
 
-Il pannello sta un metro davanti e 32 cm sotto la linea dello sguardo, e insegue
-la testa **con calma e solo in imbardata**. Incollato allo sguardo sarebbe
+Il pannello sta **a portata di braccio** — 60 cm davanti, 19 sotto la linea dello
+sguardo — e insegue la testa **con calma e solo in imbardata**. La prima versione
+stava a un metro: si leggeva benissimo e non si poteva premere, perché il braccio
+arriva a una sessantina di centimetri. Un pannello che si tocca col dito deve
+stare dove il dito arriva. Le misure sono scritte per un metro e poi scalate con
+la distanza, così spostarlo non ne cambia la dimensione apparente né la
+leggibilità: `XRUI.setPlacement(0.7)` non richiede di ritarare nulla. Incollato allo sguardo sarebbe
 illeggibile mentre ci si muove; seguendo anche il beccheggio finirebbe in mezzo
 anche guardando in basso verso una vite. Con il solo yaw resta un oggetto
 appoggiato nello spazio, che si ritrova dove ci si aspetta.
@@ -408,10 +413,10 @@ aperto il desktop blocca tutto ciò che sta dietro, e prima dell'avvio del
 tutorial `StepGatingManager` blocca ogni interazione. In VR vale lo stesso,
 altrimenti si permetterebbe ciò che il resto del sistema vieta.
 
-Con la legenda a disposizione, l'equipaggiamento automatico può essere spento:
-`XRInput.setAutoTool(false)`. Da quel momento un tocco con lo strumento sbagliato
-non fa nulla, esattamente come sul desktop. Resta acceso di default — è la scelta
-che non rompe nulla.
+Con la legenda a disposizione, **l'equipaggiamento automatico è spento**:
+scegliere l'utensile è tornato a essere parte dell'esercizio, e un tocco con lo
+strumento sbagliato non fa nulla, esattamente come sul desktop.
+`XRInput.setAutoTool(true)` lo riaccende, se servisse una modalità dimostrativa.
 
 #### Oggetti impugnati
 
@@ -457,6 +462,23 @@ conservare la sua dimensione in unità scena.
 Taratura a caldo: `XRHold.setGrip(x, y, z, rx, ry, rz)` — posizione in metri
 rispetto al polso, rotazione in gradi. La posa giusta si giudica solo indossando
 il visore.
+
+##### Puntare invece di toccare: decide la direzione, non una modalità
+
+La colonna degli strumenti e il pulsante OK possono restare al limite del
+braccio, e col dito impegnato a mirare il teleport sembra di dover scegliere fra
+le due cose. La tentazione è un interruttore "adesso punto l'interfaccia": cioè
+uno stato in più da ricordare e da sbagliare.
+
+Non serve. **È la direzione a dirlo**: verso il pannello si stanno scegliendo
+comandi, verso il pavimento una destinazione. Sono due bersagli che non si
+sovrappongono mai, quindi la disambiguazione è gratis e non c'è nulla da
+imparare — lo stesso principio per cui una mano vicina a un pulsante smette di
+mirare.
+
+Puntando un comando il raggio diventa **giallo** e si ferma sul pulsante, così si
+vede cosa si sta per premere; il pinch preme, invece di teleportare. Nessuna
+destinazione viene proposta finché si punta il pannello.
 
 #### Spostarsi: teleport
 

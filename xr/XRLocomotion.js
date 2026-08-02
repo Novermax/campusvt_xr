@@ -32,6 +32,7 @@
 
     const COLOR_AIM = 0x3ddc84;      // verde: destinazione valida
     const COLOR_IDLE = 0x9fb4c7;     // grigio: non stai mirando a terra
+    const COLOR_UI = 0xffd21e;       // giallo: stai puntando un comando del pannello
 
     const XRLocomotion = {
         enabled: false,
@@ -117,10 +118,24 @@
             let best = null;
             let bestSource = null;
 
+            this._uiHit = null;
+            this._uiSource = null;
+
             for (const { s, ray } of this.rays) {
                 // Una mano impegnata a premere non deve anche mirare: il raggio
                 // sparisce, così non si teleporta mentre si preme un pulsante.
                 if (!s.inputSource || s.near) { ray.visible = false; continue; }
+
+                // Il pannello ha la precedenza sul pavimento: se lo si sta
+                // puntando, quel raggio non è più una mira di teleport.
+                const ui = this._aimUI(s);
+                if (ui) {
+                    ray.visible = true;
+                    this._stretch(ray, ui.distance);
+                    ray.material.color.setHex(COLOR_UI);
+                    if (!this._uiHit) { this._uiHit = ui.mesh; this._uiSource = s; }
+                    continue;
+                }
 
                 const point = this._aimFloor(s);
                 ray.visible = true;
@@ -144,6 +159,42 @@
             }
 
             this._pollSnapTurn(sources);
+        },
+
+        /**
+         * Il raggio sta puntando un comando del pannello?
+         *
+         * ## Perché non serve una modalità da scegliere
+         *
+         * Il pannello sta a portata di braccio, ma la colonna degli strumenti e
+         * il pulsante OK possono restare al limite, e col dito impegnato a
+         * mirare il teleport sembra di dover scegliere fra le due cose. La
+         * tentazione è un interruttore "adesso punto l'interfaccia" — cioè uno
+         * stato in più da ricordare e da sbagliare.
+         *
+         * Non serve: **è la direzione a dirlo**. Verso il pannello si stanno
+         * scegliendo comandi, verso il pavimento una destinazione. Sono due
+         * bersagli che non si sovrappongono mai, quindi la disambiguazione è
+         * gratis e non c'è nulla da imparare. Lo stesso principio per cui una
+         * mano vicina a un pulsante smette di mirare.
+         *
+         * Il raggio diventa giallo e si ferma sul pulsante, così si vede cosa si
+         * sta per premere; il pinch preme, invece di teleportare.
+         *
+         * @returns {?{mesh:THREE.Object3D, distance:number}}
+         */
+        _aimUI: function (s) {
+            const UIX = window.XRUI;
+            const targets = UIX && UIX.targets ? UIX.targets() : null;
+            if (!targets || !targets.length) return null;
+
+            this._tmpMatrix.identity().extractRotation(s.controller.matrixWorld);
+            this._raycaster.ray.origin.setFromMatrixPosition(s.controller.matrixWorld);
+            this._raycaster.ray.direction.set(0, 0, -1).applyMatrix4(this._tmpMatrix).normalize();
+
+            const hits = this._raycaster.intersectObjects(targets, false);
+            if (!hits.length) return null;
+            return { mesh: hits[0].object, distance: hits[0].distance };
         },
 
         /** @returns {?THREE.Vector3} punto a terra mirato, in coordinate mondo. */
@@ -181,6 +232,14 @@
         _onSelect: function (s) {
             if (!this.enabled) return;
             if (s.near) return;                      // sta premendo: non teleportare
+
+            // Puntando un comando, il pinch preme quello. È la stessa mano e lo
+            // stesso gesto: cambia solo dove stava guardando il raggio.
+            if (this._uiHit && this._uiSource === s && window.XRUI) {
+                window.XRUI.activate(this._uiHit);
+                return;
+            }
+
             if (!this._hit || this._hitSource !== s) return;
             this.teleportTo(this._hit);
         },

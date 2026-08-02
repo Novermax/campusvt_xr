@@ -42,8 +42,21 @@
     const TEX_W = 1024;
     const TEX_H = 512;
 
-    /** Distanza e altezza del pannello rispetto alla testa, in metri. */
-    let DIST = 1.0;
+    /**
+     * Distanza e altezza del pannello rispetto alla testa, in metri.
+     *
+     * **A portata di braccio, non a distanza di lettura.** La prima versione
+     * stava a un metro: si leggeva benissimo e non si poteva premere, perché il
+     * braccio arriva a una sessantina di centimetri. Un pannello che si tocca
+     * col dito deve stare dove il dito arriva — leggibilità e portata non sono
+     * negoziabili l'una contro l'altra.
+     *
+     * Le misure sono scritte per un metro e poi scalate: cambiando distanza il
+     * pannello conserva la stessa dimensione APPARENTE, quindi la stessa
+     * leggibilità. Spostarlo non vuol dire ritararlo.
+     */
+    const REF_DIST = 1.0;
+    let DIST = 0.60;
     let DROP = 0.32;
 
     /**
@@ -632,10 +645,14 @@
             const head = cam.position;
             this._e.setFromQuaternion(cam.quaternion, 'YXZ');
             const yaw = this._e.y;
+            const k = DIST / REF_DIST;
+
+            // Scala e distanza insieme: l'angolo sotteso non cambia.
+            this.root.scale.setScalar(k);
 
             this._v.set(
                 head.x - Math.sin(yaw) * DIST,
-                head.y - DROP,
+                head.y - DROP * k,
                 head.z - Math.cos(yaw) * DIST
             );
 
@@ -737,7 +754,7 @@
          * @param {number} [drop] quanto sotto la linea dello sguardo.
          */
         setPlacement: function (distance, drop) {
-            if (distance !== undefined) DIST = Math.max(0.4, Math.min(3, Number(distance) || DIST));
+            if (distance !== undefined) DIST = Math.max(0.3, Math.min(3, Number(distance) || DIST));
             if (drop !== undefined) DROP = Math.max(-0.5, Math.min(1.2, Number(drop)));
             this._placed = false;   // riposizionamento immediato, senza inseguimento
             console.log(`[XRUI] Pannello a ${DIST.toFixed(2)} m, ${DROP.toFixed(2)} m sotto lo sguardo.`);

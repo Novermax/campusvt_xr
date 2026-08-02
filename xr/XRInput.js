@@ -190,13 +190,14 @@
      *
      * Esisteva perché in VR la legenda degli strumenti — DOM — era invisibile e
      * senza di essa gli step con utensile non partivano affatto. Ora la legenda
-     * c'è, in-world (vedi XRUI), e scegliere l'utensile giusto può tornare a
-     * essere parte dell'esercizio: spegnendo questo, un tocco con lo strumento
-     * sbagliato non fa nulla, esattamente come sul desktop.
+     * c'è, in-world (vedi XRUI), e scegliere l'utensile giusto è tornato a
+     * essere parte dell'esercizio: un tocco con lo strumento sbagliato non fa
+     * nulla, esattamente come sul desktop.
      *
-     * Resta acceso di default: è la scelta che non rompe nulla.
+     * Spento di default per scelta esplicita dell'utente. `setAutoTool(true)`
+     * lo riaccende, se un giorno servisse una modalità dimostrativa.
      */
-    let AUTO_TOOL = true;
+    let AUTO_TOOL = false;
 
     const CURSOR_NEAR = 0xffd21e;   // giallo: stai per toccare
     const CURSOR_SNAP = 0xfff3b0;   // giallo chiaro: il magnete ha agganciato
