@@ -52,8 +52,26 @@
      */
     const ANCHOR_JOINTS = ['middle-finger-metacarpal', 'wrist'];
 
-    /** Mano preferita per l'impugnatura. La destra resta libera di premere. */
-    const PREFERRED_HAND = 'left';
+    /**
+     * Mano dell'impugnatura. **Vincolo, non preferenza**: il telecomando sta
+     * nella sinistra e la destra resta libera di premere.
+     *
+     * Non è pignoleria. Le sorgenti XR sono indicizzate per ordine di
+     * connessione, non per lateralità: se spariscono entrambe le mani e torna
+     * solo la destra, questa si riconnette sull'indice che prima era della
+     * sinistra. Legarsi alla "prima mano disponibile" — o all'ancora appesa a
+     * quell'indice — faceva ricomparire il telecomando nella destra. Qui si
+     * guarda solo `handedness`, e l'ancora è una sola, che segue la mano giusta.
+     */
+    let HOLD_HAND = 'left';
+
+    /**
+     * Quanto si aspetta prima di considerare persa la mano dell'impugnatura.
+     * Le mani tracciate si disconnettono appena escono dal campo delle camere —
+     * succede di continuo, basta abbassare il braccio. Senza questa attesa
+     * l'oggetto sfarfallerebbe fra mano e ripiego davanti alla testa.
+     */
+    const HAND_GRACE_MS = 1500;
 
     const XRHold = {
         active: false,
@@ -119,44 +137,49 @@
             // Restituisce al grafo originale gli oggetti che avevamo spostato:
             // altrimenti alla vista desktop resterebbero appesi a un'ancora
             // rimossa insieme al rig.
-            const anchors = (this.input ? this.input.sources : []).map((s) => s._holdAnchor);
-            if (this._head) anchors.push(this._head);
-            anchors.forEach((a) => {
+            [this._anchor, this._head].forEach((a) => {
                 if (!a) return;
                 [...a.children].forEach((m) => this._restore(m));
                 if (a.parent) a.parent.remove(a);
             });
-            (this.input ? this.input.sources : []).forEach((s) => { s._holdAnchor = null; });
+            this._anchor = null;
             this._head = null;
+            this._handSource = null;
 
             this.active = false;
         },
 
         // =====================================================================
 
-        /** Sorgente da usare per l'impugnatura: la preferita se c'è, altrimenti l'altra. */
         /**
-         * Indica quale mano ha toccato l'oggetto: e' li' che deve finire.
-         * Mandarlo sempre alla sinistra sarebbe scorretto se l'utente lo prende
-         * con la destra.
+         * Sorgente che regge l'oggetto: **solo** quella con `handedness` uguale
+         * a {@link HOLD_HAND}. Mai "la prima disponibile": è così che il
+         * telecomando finiva nella destra.
+         *
+         * @returns {?object} la mano dell'impugnatura, o null per il ripiego
+         *          davanti alla testa quando quella mano non c'è.
          */
-        preferSource: function (s) {
-            if (s && s.inputSource) this._preferred = s;
-        },
-
         _pickSource: function () {
             const src = this.input ? this.input.sources : [];
-            if (this._preferred && this._preferred.inputSource) return this._preferred;
-            const found = src.find((s) => s.inputSource && s.hand === PREFERRED_HAND)
-                || src.find((s) => s.inputSource);
-            if (found) { this._lastSource = found; return found; }
+            const now = performance.now();
 
-            // Le mani tracciate si disconnettono appena escono dal campo delle
-            // camere — succede di continuo, abbassando il braccio. Senza questa
-            // memoria l'oggetto salterebbe alla testa e tornerebbe alla mano a
-            // ogni sfarfallio. Meglio lasciarlo dov'è finché la mano non torna.
-            const last = this._lastSource;
-            if (last && last._holdAnchor && last._holdAnchor.parent) return last;
+            // Connessa adesso: la lateralità arriva dall'evento, non dall'indice.
+            const live = src.find((s) => s.inputSource && s.hand === HOLD_HAND);
+            if (live) { this._handSource = live; this._handSeenAt = now; return live; }
+
+            // Sparita da poco: sfarfallio, non un vero abbandono. L'oggetto resta
+            // dov'è invece di rimbalzare fra mano e testa a ogni battito.
+            //
+            // Vale solo se quella sorgente è ANCORA scollegata. Se nel frattempo
+            // si è riconnessa portando l'altra lateralità — succede: gli indici
+            // seguono l'ordine di connessione, non la mano — la tolleranza
+            // decade all'istante, altrimenti sarebbe la strada per cui il
+            // telecomando finiva nella destra.
+            const remembered = this._handSource;
+            if (remembered && !remembered.inputSource && now - (this._handSeenAt || 0) < HAND_GRACE_MS) {
+                return remembered;
+            }
+
             return null;
         },
 
@@ -167,8 +190,19 @@
          */
         _anchorFor: function (s) {
             const THREE = window.THREE;
-            const joints = s.handObj && s.handObj.joints;
 
+            if (!this._anchor) {
+                this._anchor = new THREE.Group();
+                this._anchor.name = 'XRHoldAnchor';
+            }
+
+            // Sorgente non connessa: siamo nella finestra di tolleranza dello
+            // sfarfallio. Riagganciare adesso significherebbe appendersi ai
+            // giunti fermi — o peggio, al controller di un indice che nel
+            // frattempo è passato all'altra mano. Si lascia tutto com'è.
+            if (!s.inputSource && this._anchor.parent) return this._anchor;
+
+            const joints = s.handObj && s.handObj.joints;
             let parent = s.controller;
             let name = 'controller';
             for (const j of ANCHOR_JOINTS) {
@@ -179,17 +213,13 @@
                 }
             }
 
-            if (!s._holdAnchor) {
-                s._holdAnchor = new THREE.Group();
-                s._holdAnchor.name = 'XRHoldAnchor';
-            }
-            if (s._holdAnchor.parent !== parent) {
-                parent.add(s._holdAnchor);
+            if (this._anchor.parent !== parent) {
+                parent.add(this._anchor);
                 // Cambiare giunto cambia lo spazio: la centratura va rifatta.
-                [...s._holdAnchor.children].forEach((m) => { m.userData._xrHoldCenter = null; });
+                [...this._anchor.children].forEach((m) => { m.userData._xrHoldCenter = null; });
             }
-            this.anchorParentName = name;
-            return s._holdAnchor;
+            this.anchorParentName = `${HOLD_HAND === 'left' ? 'sinistra' : 'destra'}, ${name}`;
+            return this._anchor;
         },
 
         /**
@@ -327,12 +357,30 @@
 
         getGrip: function () { return { ...GRIP }; },
 
+        /**
+         * Cambia la mano dell'impugnatura. Esiste per il mancino, non per il
+         * runtime: nessuna logica deve chiamarlo per "seguire" la mano che ha
+         * toccato l'oggetto — è esattamente ciò che mandava il telecomando nella
+         * mano sbagliata.
+         * @param {'left'|'right'} hand
+         */
+        setHand: function (hand) {
+            if (hand !== 'left' && hand !== 'right') return HOLD_HAND;
+            HOLD_HAND = hand;
+            this._handSource = null;
+            this._handSeenAt = 0;
+            this._invalidate();
+            console.log(`[XRHold] Mano dell'impugnatura: ${HOLD_HAND}`);
+            return HOLD_HAND;
+        },
+
+        getHand: function () { return HOLD_HAND; },
+
         /** La centratura dipende da rotazione e scala: cambiandole va rifatta. */
         _invalidate: function () {
-            (this.input ? this.input.sources : []).forEach((s) => {
-                if (s._holdAnchor) [...s._holdAnchor.children].forEach((m) => { m.userData._xrHoldCenter = null; });
+            [this._anchor, this._head].forEach((a) => {
+                if (a) [...a.children].forEach((m) => { m.userData._xrHoldCenter = null; });
             });
-            if (this._head) [...this._head.children].forEach((m) => { m.userData._xrHoldCenter = null; });
         },
 
         _persistGrip: function () {
@@ -353,7 +401,8 @@
             const s = this._pickSource();
             const info = {
                 attivo: this.active,
-                manoUsata: s ? `${s.hand}${s.isHand ? ' (mano)' : ' (controller)'}` : 'nessuna',
+                manoVincolata: HOLD_HAND,
+                manoUsata: s ? `${s.hand || HOLD_HAND}${s.isHand ? ' (mano)' : ' (controller)'}` : 'nessuna → testa',
                 ancorataA: this.anchorParentName || '-',
                 oggettiImpugnati: H && H.heldObjects ? (H.heldObjects.size ?? H.heldObjects.length ?? '?') : 'n/d',
                 impugnatura: { ...GRIP },

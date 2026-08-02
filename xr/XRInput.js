@@ -34,9 +34,16 @@
      * piccoli: senza tolleranza servirebbe una precisione irreale.
      * L'uscita è più larga dell'ingresso — isteresi, altrimenti un dito che
      * trema a filo del bordo fa scattare il pulsante decine di volte.
+     *
+     * Stretto di proposito: il bersaglio deve risultare attivabile solo quando
+     * il dito ci è davvero sopra. Con 2,2 cm più l'assistenza magnetica larga
+     * l'area di attivazione arrivava a quasi 5 cm e i comandi scattavano da
+     * lontano — sensazione di approssimazione, non di contatto.
      */
-    let POKE_ENTER = 0.022;
-    let POKE_EXIT = 0.040;
+    let POKE_ENTER = 0.016;
+    /** Quanto più larga è l'uscita rispetto all'ingresso. */
+    const EXIT_RATIO = 2.2;
+    let POKE_EXIT = POKE_ENTER * EXIT_RATIO;
 
     /**
      * Afferrare è un gesto molto più grossolano che premere: la soglia per gli
@@ -81,9 +88,34 @@
      * Vale SOLO per i bersagli `evidenziato`, cioè per l'`element` che lo step
      * sta chiedendo. Gli altri restano alla soglia secca: nessuna scorciatoia
      * inattesa su ciò che il tutorial non ha chiesto.
+     *
+     * Il campo è corto — poco più di 3 cm — perché deve essere l'ultimo tratto
+     * dell'avvicinamento a essere guidato, non tutto il gesto. Con 9 cm il
+     * cursore partiva verso il bersaglio quando la mano era ancora per aria, e
+     * l'aggancio arrivava troppo presto per sembrare un contatto.
      */
-    let SNAP_RANGE = 0.09;
-    let SNAP_STRENGTH = 0.85;
+    let SNAP_RANGE = 0.032;
+    let SNAP_STRENGTH = 0.80;
+
+    /**
+     * Aggancio: quanto può vagare il dito prima che la mano torni libera.
+     *
+     * Quando il contatto scatta, la mano DISEGNATA si ferma: resta dov'era nel
+     * momento dell'aggancio e i piccoli movimenti del dito vero non la spostano.
+     * È il sostituto dell'attrito che nella realtà tiene il polpastrello sul
+     * pulsante — senza, la mano scivola via da un bersaglio che dovrebbe
+     * trattenerla, e il tocco non si sente mai "arrivato".
+     *
+     * Solo la resa cambia: il dito vero continua a essere seguito dalla logica,
+     * ed è lui a decidere quando l'aggancio finisce. Superata questa distanza
+     * dal punto di aggancio, la mano riprende a seguire la vera posizione —
+     * non di scatto, ma rientrando in una frazione di secondo.
+     */
+    let LATCH_TOLERANCE = 0.022;
+
+    /** Quanto in fretta la mano rientra sulla posizione vera dopo l'aggancio.
+     *  Frazione di scostamento tolta a ogni frame: a 72 Hz, ~0,1 s. */
+    const LATCH_RELEASE_DECAY = 0.80;
 
     /** Giunti di una XRHand. Serve a dimensionare la mesh istanziata di ripiego. */
     const HAND_JOINT_COUNT = 25;
@@ -130,6 +162,8 @@
         _lastRebuild: 0,
         _tmpA: null,
         _tmpB: null,
+        _tmpC: null,
+        _tmpD: null,
 
         /**
          * Ultimo tocco andato a buon fine o a vuoto, in italiano leggibile.
@@ -153,6 +187,8 @@
             this._raycaster = new THREE.Raycaster();
             this._tmpA = new THREE.Vector3();
             this._tmpB = new THREE.Vector3();
+            this._tmpC = new THREE.Vector3();
+            this._tmpD = new THREE.Vector3();
 
             for (let i = 0; i < 2; i++) this.sources.push(this._buildSource(i));
             this.candidates = [];
@@ -244,6 +280,8 @@
                 engaged: null,      // mesh attualmente "premuta", per l'isteresi
                 near: null,
                 snapW: 0,           // forza dell'attrazione in corso, 0..1
+                latch: null,        // { cand, tip, point } se la mano è agganciata
+                holdOffset: new THREE.Vector3(),  // scostamento mondo della mano disegnata
                 flashUntil: 0,
             };
 
@@ -293,7 +331,10 @@
                         if (o.isBone || o.type === 'Bone') bones[o.name] = o;
                     });
                     s.handObj.add(gltf.scene);
-                    s.handModel = { root: gltf.scene, bones };
+                    // La posa di riposo del root va ricordata: l'aggancio ci
+                    // somma sopra uno scostamento, e senza base a cui tornare
+                    // ogni aggancio sposterebbe la mano un po' più in là.
+                    s.handModel = { root: gltf.scene, bones, base: gltf.scene.position.clone() };
                     s.handMesh.visible = false;
                     s.handMesh.count = 0;
                     console.log(`[XRInput] Mano ${s.hand}: mesh caricata, ${Object.keys(bones).length} ossa.`);
@@ -318,7 +359,14 @@
             return this._updateHandSpheres(s);
         },
 
-        /** Copia la posa di ogni giunto sull'osso omonimo. */
+        /**
+         * Copia la posa di ogni giunto sull'osso omonimo.
+         *
+         * Lo scostamento di aggancio si applica alla RADICE, non alle ossa: le
+         * dita continuano ad articolarsi come nella realtà, è la mano intera a
+         * restare ferma sul punto. Bloccare anche le ossa darebbe una mano di
+         * gesso.
+         */
         _updateHandBones: function (s) {
             const joints = s.handObj && s.handObj.joints;
             const bones = s.handModel.bones;
@@ -332,6 +380,9 @@
                 bones[name].quaternion.copy(j.quaternion);
                 tracked++;
             }
+
+            this._offsetIn(s.handObj, s.holdOffset, this._tmpC);
+            s.handModel.root.position.copy(s.handModel.base).add(this._tmpC);
             s.handModel.root.visible = tracked > 0;
         },
 
@@ -347,7 +398,13 @@
 
             this._mat = this._mat || new THREE.Matrix4();
             this._rigInv = this._rigInv || new THREE.Matrix4();
+            this._offsetMat = this._offsetMat || new THREE.Matrix4();
             this._rigInv.copy(this.xr.rig.matrixWorld).invert();
+
+            // Lo scostamento di aggancio, portato nello spazio del rig e
+            // applicato a tutte le sferette insieme: la mano si ferma intera.
+            const off = this._offsetIn(this.xr.rig, s.holdOffset, this._tmpC);
+            this._offsetMat.makeTranslation(off.x, off.y, off.z);
 
             let n = 0;
             for (const name in joints) {
@@ -358,6 +415,7 @@
                 const r = j.jointRadius || 0.008;
                 this._mat.copy(j.matrixWorld);
                 this._mat.premultiply(this._rigInv);          // in coordinate del rig
+                this._mat.premultiply(this._offsetMat);       // fermo, se agganciato
                 this._mat.scale(this._tmpB.set(r, r, r));
                 s.handMesh.setMatrixAt(n++, this._mat);
             }
@@ -484,6 +542,94 @@
         },
 
         // =====================================================================
+        // Aggancio
+        // =====================================================================
+
+        /*
+         * Nella realtà un pulsante trattiene il polpastrello: c'è l'attrito, c'è
+         * la superficie che oppone resistenza, e la mano non scivola via mentre
+         * si preme. In VR non c'è niente di tutto questo — il dito attraversa il
+         * comando come aria, e il tocco non si sente mai "arrivato".
+         *
+         * L'aggancio restituisce quella sensazione con l'unico canale che resta:
+         * la vista. Al contatto la mano DISEGNATA si ferma sul punto e i piccoli
+         * movimenti non la spostano più. Il dito vero continua a essere seguito
+         * dalla logica — è lui a dire quando l'aggancio finisce — ma sullo
+         * schermo la mano è tenuta. Solo uscendo dalla tolleranza torna libera,
+         * rientrando sulla posizione vera in una frazione di secondo.
+         *
+         * L'aggancio si arma sul contatto e non si riarma da solo: se il dito
+         * esce dalla tolleranza restando dentro il bersaglio, la mano resta
+         * libera finché non si stacca e si torna a premere. Riagganciare a metà
+         * di un movimento volontario sarebbe una mano che si incolla da sola.
+         */
+
+        /**
+         * @param {object} cand candidato appena toccato.
+         * @param {THREE.Vector3} [ref] punto della mano che ha toccato. È il
+         *        vettore vivo, riusato di frame in frame da `_updateTip`:
+         *        tenerne il riferimento è il modo per seguire proprio quel
+         *        polpastrello, che non è detto sia l'indice — un comando lo si
+         *        può sfiorare col pollice.
+         */
+        _latch: function (s, cand, ref) {
+            // Afferrare è un gesto di trasporto, non di pressione: bloccare la
+            // mano mentre prende un oggetto la farebbe sembrare rotta.
+            if (!cand || cand.kind === 'impugnabile' || LATCH_TOLERANCE <= 0) return;
+
+            const THREE = window.THREE;
+            const live = ref || s.tip;
+            const point = new THREE.Vector3();
+            cand.box.clampPoint(live, point);
+            s.latch = { cand, live, at: live.clone(), point };
+        },
+
+        /** Scioglie l'aggancio. La mano non torna di scatto: ci pensa il decay. */
+        _unlatch: function (s) {
+            s.latch = null;
+        },
+
+        /**
+         * Calcola lo scostamento della mano disegnata per questo frame.
+         * Agganciati vale `puntoDiAggancio - ditoVero`, così la mano resta dov'era;
+         * liberi rientra verso zero.
+         */
+        _updateLatch: function (s) {
+            // L'aggancio è un sotto-stato del contatto: finito quello, finisce.
+            if (s.latch && !s.engaged) this._unlatch(s);
+
+            if (s.latch) {
+                const drift = s.latch.live.distanceTo(s.latch.at);
+                if (drift > LATCH_TOLERANCE) {
+                    this._unlatch(s);
+                } else {
+                    s.holdOffset.copy(s.latch.at).sub(s.latch.live);
+                    return;
+                }
+            }
+            s.holdOffset.multiplyScalar(LATCH_RELEASE_DECAY);
+            if (s.holdOffset.lengthSq() < 1e-8) s.holdOffset.set(0, 0, 0);
+        },
+
+        /**
+         * Lo scostamento vive in coordinate mondo, ma va applicato a nodi che
+         * stanno in altri spazi (il rig è scalato e può essere ruotato dagli
+         * scatti del thumbstick). Si converte trasformando due punti e
+         * sottraendo: vale per qualunque catena di trasformazioni.
+         *
+         * @param {THREE.Object3D} obj nodo nel cui spazio locale serve lo scostamento.
+         * @param {THREE.Vector3} out destinazione.
+         */
+        _offsetIn: function (obj, worldOffset, out) {
+            if (worldOffset.lengthSq() === 0) return out.set(0, 0, 0);
+            this._tmpD.set(0, 0, 0);
+            obj.worldToLocal(this._tmpD);        // dov'è l'origine del mondo, in locale
+            out.copy(worldOffset);
+            obj.worldToLocal(out);               // dov'è il punto spostato, in locale
+            return out.sub(this._tmpD);          // la differenza è lo scostamento
+        },
+
+        // =====================================================================
         // Frame
         // =====================================================================
 
@@ -501,10 +647,17 @@
             let hovered = null;
 
             for (const s of this.sources) {
-                this._updateHandVisual(s);
-                if (!this._updateTip(s) || blocked) { s.cursor.visible = false; s.engaged = null; continue; }
+                // La mano si disegna DOPO aver deciso l'aggancio: la posa
+                // mostrata dipende da quello.
+                if (!this._updateTip(s) || blocked) {
+                    s.cursor.visible = false;
+                    s.engaged = null;
+                    this._unlatch(s);
+                    this._updateHandVisual(s);
+                    continue;
+                }
 
-                const { hit, near, dist, nearTip } = this._probe(s.tips);
+                const { hit, hitTip, near, dist, nearTip } = this._probe(s.tips);
 
                 // Isteresi: si esce solo oltre la soglia allargata, così un dito
                 // che trema sul bordo non ripete il comando. Si misura nello
@@ -516,14 +669,17 @@
                     for (const t of s.tips) d = Math.min(d, s.engaged.box.distanceToPoint(t));
                     d *= 1 - this._assistFor(s.engaged, d);
                     const exit = s.engaged.kind === 'impugnabile' ? GRAB_ENTER * 1.8 : POKE_EXIT;
-                    if (d > exit) s.engaged = null;
+                    if (d > exit) { s.engaged = null; this._unlatch(s); }
                 } else if (hit) {
                     s.engaged = hit;
-                    // L'oggetto va nella mano che l'ha toccato, non sempre nella
-                    // stessa: e' quella che l'utente ha usato.
-                    if (hit.kind === 'impugnabile' && window.XRHold) window.XRHold.preferSource(s);
                     this._press(hit.mesh, s);
+                    this._latch(s, hit, hitTip);
                 }
+
+                // Aggancio: la mano disegnata resta ferma finché il dito vero
+                // non esce dalla tolleranza.
+                this._updateLatch(s);
+                this._updateHandVisual(s);
 
                 s.near = near ? near.mesh : null;
                 if (near) hovered = near.mesh;
@@ -547,6 +703,9 @@
                         this._tmpA.lerp(this._tmpB, w);
                         s.snapW = w;
                     }
+                    // Agganciati, il cursore sta fermo sul punto: è il segno
+                    // visibile che il bersaglio sta trattenendo il dito.
+                    if (s.latch) { this._tmpA.copy(s.latch.point); s.snapW = 1; }
 
                     s.cursor.position.copy(this._tmpA);
                     this.xr.rig.worldToLocal(s.cursor.position);
@@ -570,12 +729,14 @@
 
         /**
          * @param {THREE.Vector3[]} tips punti della mano che contano come contatto.
-         * @returns {{hit:?object, near:?object, dist:number, nearTip:?THREE.Vector3}}
-         *          bersaglio toccato, bersaglio vicino, distanza grezza e punto
-         *          della mano che se ne sta più vicino.
+         * @returns {{hit:?object, hitTip:?THREE.Vector3, near:?object,
+         *            dist:number, nearTip:?THREE.Vector3}}
+         *          bersaglio toccato e punto della mano che l'ha toccato,
+         *          bersaglio vicino, distanza grezza e punto più vicino.
          */
         _probe: function (tips) {
             let hit = null;
+            let hitTip = null;
             let near = null;
             let nearTip = null;
             let bestHit = Infinity;
@@ -597,12 +758,12 @@
                 // bersaglio. Sui candidati senza assistenza coincide con `d`.
                 const dEff = d * (1 - this._assistFor(c, d));
 
-                if (dEff <= radius && dEff < bestHit) { bestHit = dEff; hit = c; }
+                if (dEff <= radius && dEff < bestHit) { bestHit = dEff; hit = c; hitTip = tip; }
                 if (d <= Math.max(NEAR_RANGE, radius) && d < bestNear) {
                     bestNear = d; near = c; nearTip = tip;
                 }
             }
-            return { hit, near, dist: bestNear, nearTip };
+            return { hit, hitTip, near, dist: bestNear, nearTip };
         },
 
         // =====================================================================
@@ -688,7 +849,10 @@
                  * cursore sta venendo accompagnato sul punto. Fuori dal campo
                  * resta discreto, una presenza che non copre la macchina.
                  */
-                const glow = best < SNAP_RANGE ? Math.max(0, 1 - best / SNAP_RANGE) : 0;
+                let glow = best < SNAP_RANGE ? Math.max(0, 1 - best / SNAP_RANGE) : 0;
+                // Agganciato: acceso pieno, senza pulsare. Il bersaglio sta
+                // trattenendo il dito, e si deve vedere che è successo qualcosa.
+                if (this.sources.some((s) => s.latch && s.latch.cand === c)) glow = 1;
 
                 // Scala quasi ferma, opacità pulsante: un anello che cambia
                 // dimensione sembra allontanarsi e rende difficile mirare.
@@ -867,6 +1031,8 @@
                 sogliaContatto: `${(POKE_ENTER * 100).toFixed(1)} cm (unità scena)`,
                 magnete: `raggio ${(SNAP_RANGE * 100).toFixed(1)} cm, forza ${SNAP_STRENGTH.toFixed(2)}`,
                 attrazione: this.sources.map((s) => s.snapW ? `${(s.snapW * 100).toFixed(0)}%` : '-').join(' | '),
+                aggancio: this.sources.map((s) => s.latch ? s.latch.cand.mesh.name : '-').join(' | '),
+                tolleranzaAggancio: `${(LATCH_TOLERANCE * 100).toFixed(1)} cm`,
                 ultimoTocco: this.lastTouch ? `${this.lastTouch.name} → ${this.lastTouch.esito}` : 'nessuno',
             };
             console.table(info);
@@ -880,7 +1046,7 @@
          */
         setPokeRadius: function (meters) {
             POKE_ENTER = Math.max(0.005, Math.min(0.10, Number(meters) || POKE_ENTER));
-            POKE_EXIT = POKE_ENTER * 1.8;
+            POKE_EXIT = POKE_ENTER * EXIT_RATIO;
             console.log(`[XRInput] Soglia contatto: ${(POKE_ENTER * 100).toFixed(1)} cm (uscita ${(POKE_EXIT * 100).toFixed(1)} cm)`);
             return POKE_ENTER;
         },
@@ -899,6 +1065,18 @@
             if (strength !== undefined) SNAP_STRENGTH = Math.max(0, Math.min(1, Number(strength)));
             console.log(`[XRInput] Magnete: raggio ${(SNAP_RANGE * 100).toFixed(1)} cm, forza ${SNAP_STRENGTH.toFixed(2)}`);
             return { range: SNAP_RANGE, strength: SNAP_STRENGTH };
+        },
+
+        /**
+         * Tolleranza dell'aggancio, in unità scena: quanto può vagare il dito
+         * prima che la mano disegnata torni libera. 0 disattiva l'aggancio e
+         * riporta la mano a seguire sempre la posizione vera.
+         */
+        setLatch: function (meters) {
+            LATCH_TOLERANCE = Math.max(0, Math.min(0.10, Number(meters)));
+            if (!LATCH_TOLERANCE) this.sources.forEach((s) => this._unlatch(s));
+            console.log(`[XRInput] Tolleranza aggancio: ${(LATCH_TOLERANCE * 100).toFixed(1)} cm`);
+            return LATCH_TOLERANCE;
         },
 
         /** Soglia per afferrare, separata perché il gesto è più grossolano. */

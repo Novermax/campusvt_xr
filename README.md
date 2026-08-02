@@ -158,25 +158,59 @@ Il contatto secco chiede una precisione che senza aptica non si ha: il dito
 arriva a un centimetro dal pulsante e non succede niente, perché nulla dice dove
 finisce l'aria. Da qui l'assistenza magnetica.
 
-Entro **9 cm** dall'`element` che lo step sta chiedendo, il bersaglio comincia a
-tirare a sé la sfera gialla verso il proprio punto di interazione — lo stesso
+Entro **3,2 cm** dall'`element` che lo step sta chiedendo, il bersaglio comincia
+a tirare a sé la sfera gialla verso il proprio punto di interazione — lo stesso
 punto che l'anello indica. L'attrazione cresce con continuità (curva smoothstep)
-fino all'85%: è un accompagnamento, mai un teletrasporto.
+fino all'80%: è un accompagnamento, mai un teletrasporto.
+
+Il campo è corto di proposito. Dev'essere guidato l'ultimo tratto
+dell'avvicinamento, non tutto il gesto: con 9 cm il cursore partiva verso il
+bersaglio mentre la mano era ancora per aria, e l'aggancio arrivava troppo presto
+per somigliare a un contatto.
 
 La regola che tiene insieme vista e logica: **il contatto si misura sul cursore,
 non sul polpastrello**. Quel che si vede è quel che vale — la sfera arriva sul
-punto e lì il tocco scatta, come un tocco normale. In pratica il bersaglio dello
-step si attiva a circa 4,5 cm invece di 2,2, ma solo perché il dito, visibilmente,
-c'è già arrivato.
+punto e lì il tocco scatta, come un tocco normale. Il bersaglio dello step si
+attiva a **circa 2 cm**, contro 1,6 del contatto secco: la differenza è il
+tratto che il dito ha già percorso, visibilmente, dentro il magnete.
 
 Vale **solo per i bersagli `evidenziato`**, cioè per l'element chiesto dallo step
 e per gli oggetti impugnabili già facilitati dalla loro soglia larga. Tutto il
 resto resta alla soglia secca: nessuna scorciatoia inattesa su ciò che il
 tutorial non ha chiesto.
 
-Taratura a caldo: `XRInput.setSnap(0.12, 0.9)` — raggio e forza.
+Taratura a caldo: `XRInput.setSnap(0.05, 0.9)` — raggio e forza.
 `XRInput.setSnap(undefined, 0)` disattiva il magnete e riporta il comportamento
-al contatto secco di prima.
+al contatto secco.
+
+##### L'aggancio: il bersaglio trattiene il dito
+
+Nella realtà un pulsante trattiene il polpastrello — c'è l'attrito, c'è la
+superficie che resiste, e la mano non scivola via mentre si preme. In VR non c'è
+niente di tutto questo: il dito attraversa il comando come aria, e il tocco non
+si sente mai arrivato. L'attrazione da sola non basta, perché è solo un
+indicatore: guida il cursore e poi lo lascia andare.
+
+Al contatto, quindi, **la mano disegnata si ferma**. Resta dov'era nell'istante
+dell'aggancio, e i piccoli movimenti del dito vero non la spostano più: entro
+**2,2 cm** di tolleranza il bersaglio la tiene. Superata quella distanza la mano
+torna libera, rientrando sulla posizione vera in circa un decimo di secondo —
+non di scatto.
+
+Solo la resa cambia. La logica continua a seguire il dito vero, ed è lui a
+decidere quando l'aggancio finisce: nessun comando parte o manca per via di dove
+la mano è disegnata. Lo scostamento si applica alla **radice** della mano, non
+alle ossa, così le dita continuano ad articolarsi — bloccare anche quelle darebbe
+una mano di gesso.
+
+L'aggancio si arma sul contatto e non si riarma da solo: se il dito esce dalla
+tolleranza restando dentro il bersaglio, la mano resta libera finché non ci si
+stacca e si torna a premere. Riagganciare a metà di un movimento volontario
+sarebbe una mano che si incolla addosso alle cose. Non vale per gli oggetti
+impugnabili: afferrare è trasporto, non pressione, e una mano bloccata mentre
+prende qualcosa sembra rotta.
+
+Taratura: `XRInput.setLatch(0.03)`; `setLatch(0)` lo disattiva.
 
 ##### Lo strumento dello step si equipaggia da solo
 
@@ -209,10 +243,24 @@ coordinata mondo. Lo era finché la camera era figlia di `Scene`; da quando è
 figlia dell'`XRRig` è **locale**, e l'oggetto finiva a quasi 4 unità dalla testa.
 Ed è comunque innaturale: in VR l'oggetto lo si prende in mano.
 
-`xr/XRHold.js` avvolge quel metodo e aggancia l'oggetto al **polso** della mano
-sinistra — la destra resta libera di premere — con ripiego sul controller se il
-polso non è tracciato. Presa, rilascio e stato degli step restano di
-`HoldableSystem`: `core/` non è toccato.
+`xr/XRHold.js` avvolge quel metodo e aggancia l'oggetto al **palmo** della mano
+sinistra — la destra resta libera di premere — con ripiego sul polso e poi sul
+controller se il palmo non è tracciato. Presa, rilascio e stato degli step
+restano di `HoldableSystem`: `core/` non è toccato.
+
+**La sinistra è un vincolo, non una preferenza.** Le sorgenti XR sono indicizzate
+per ordine di connessione, non per lateralità: sparendo entrambe le mani e
+tornando solo la destra, questa si riconnette sull'indice che era della sinistra.
+Legarsi alla "prima mano disponibile" — o all'ancora appesa a quell'indice —
+faceva ricomparire il telecomando nella destra. Ora si guarda solo `handedness`,
+l'ancora è **una sola** e segue la mano giusta, e la tolleranza per lo sfarfallio
+vale solo finché quella sorgente resta scollegata: se si riconnette portando
+l'altra mano, decade all'istante. Senza sinistra in vista l'oggetto va davanti
+alla testa, mai nella destra.
+
+Per il mancino: `XRHold.setHand('right')`. Nessuna logica di runtime deve
+chiamarlo per "seguire" la mano che tocca l'oggetto — è esattamente ciò che
+mandava il telecomando dalla parte sbagliata.
 
 L'ancora vive sotto il rig, quindi la scala va compensata (`1/scalaMondo`),
 altrimenti l'oggetto rimpicciolirebbe rispetto alla macchina invece di
