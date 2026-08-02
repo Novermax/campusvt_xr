@@ -222,6 +222,7 @@
                 this._suspendTouchSystem();
                 this._suspendDomCircles();
                 this._resetFrameMeter();
+                this._watchStalls(session);
                 this._applySkyBackground();
                 this._placeRigAtCamera();
                 if (window.XRInput) window.XRInput.init(this);
@@ -299,17 +300,47 @@
                 original();
             };
 
+            /*
+             * Ogni metà del frame ha il suo `try`, e nessuna eccezione esce di
+             * qui. Non è prudenza generica: in Three r155 il loop è
+             *
+             *     function onAnimationFrame(time, frame) {
+             *         animationLoop(time, frame);
+             *         requestId = context.requestAnimationFrame(onAnimationFrame);
+             *     }
+             *
+             * — il frame successivo si chiede DOPO aver eseguito la callback.
+             * Se la callback lancia, quella riga non viene mai raggiunta e il
+             * loop muore per sempre: l'applicazione smette di consegnare
+             * fotogrammi e il visore resta congelato sull'ultimo, immobile
+             * anche girando la testa. Un singolo errore dentro il codice di
+             * core — che di eccezioni non è avaro — basta a far sembrare rotta
+             * la sessione intera.
+             *
+             * Con il `try` un errore diventa un frame storto e una riga nel
+             * log, invece della fine della sessione.
+             */
             S.renderer.setAnimationLoop(function (time) {
                 const t0 = self.isPresenting ? performance.now() : 0;
                 if (self.isPresenting) {
-                    self._guardRig();
-                    self._pollScaleTuning(time);
-                    self._sampleHead();
-                    if (window.XRInput) window.XRInput.update();
+                    try {
+                        self._guardRig();
+                        self._pollScaleTuning(time);
+                        self._sampleHead();
+                        if (window.XRInput) window.XRInput.update();
+                    } catch (err) {
+                        self._noteFrameError('interazione', err);
+                    }
                 }
                 const t1 = self.isPresenting ? performance.now() : 0;
                 self._inFrame = true;
-                try { original(); } finally { self._inFrame = false; }
+                try {
+                    original();
+                } catch (err) {
+                    self._noteFrameError('scena', err);
+                } finally {
+                    self._inFrame = false;
+                }
                 if (self.isPresenting) self._meterFrame(t0, t1, performance.now());
             });
 
@@ -344,6 +375,33 @@
 
         _resetFrameMeter: function () {
             this._meter = { n: 0, sum: 0, worst: 0, over: 0, xrSum: 0, xrWorst: 0 };
+            this.frameErrors = { n: 0, first: null, last: null };
+        },
+
+        /**
+         * Registra un errore di frame senza far cadere la sessione.
+         *
+         * Il PRIMO errore è quello che conta: gli altri sono spesso la stessa
+         * cosa ripetuta 72 volte al secondo. Si conserva quello, si conta il
+         * resto, e in console si scrive di rado — riempire il log a raffica
+         * costerebbe più dell'errore.
+         *
+         * @param {'interazione'|'scena'} dove metà del frame in cui è successo.
+         */
+        _noteFrameError: function (dove, err) {
+            const msg = (err && err.message) || String(err);
+            const e = this.frameErrors || (this.frameErrors = { n: 0, first: null, last: null });
+            e.n++;
+            if (!e.first) {
+                e.first = { dove, msg, stack: (err && err.stack) ? String(err.stack).split('\n').slice(0, 4).join(' | ') : '' };
+                console.error(`[XR] Errore nel frame (${dove}): ${msg}`, e.first.stack);
+            }
+            e.last = { dove, msg };
+            const now = performance.now();
+            if (!e._loggedAt || now - e._loggedAt > 3000) {
+                e._loggedAt = now;
+                if (e.n > 1) console.error(`[XR] Errori nel frame: ${e.n} finora, ultimo (${dove}): ${msg}`);
+            }
         },
 
         /**
@@ -357,11 +415,52 @@
             const total = t2 - t0;
             const xr = t1 - t0;
             m.n++;
+            m.lastAt = t2;
             m.sum += total;
             m.xrSum += xr;
             if (total > m.worst) m.worst = total;
             if (xr > m.xrWorst) m.xrWorst = xr;
             if (total > this._frameBudgetMs) m.over++;
+        },
+
+        /**
+         * Sensori per le due cause di blocco che non lasciano traccia in un
+         * `try`, perché non sono eccezioni.
+         *
+         * **Contesto WebGL perso**: la GPU molla (memoria esaurita, driver che
+         * reimposta). Da quel momento ogni disegno è un no-op silenzioso e il
+         * visore resta sull'ultimo fotogramma, immobile anche girando la testa.
+         * Senza questo listener è indistinguibile da un loop morto.
+         *
+         * **Sessione non visibile**: il menu di sistema del visore mette la
+         * sessione in `hidden` o `visible-blurred` e i frame smettono
+         * legittimamente di arrivare. Sembra un blocco, non lo è.
+         *
+         * Entrambi finiscono nel riepilogo: dentro il Quest sono l'unico modo
+         * per sapere quale delle due è successa.
+         */
+        _watchStalls: function (session) {
+            const S = window.Scene3D;
+            this.glLost = null;
+            this.visibility = session.visibilityState || 'visible';
+
+            if (S && S.renderer && S.renderer.domElement && !this._glWatched) {
+                this._glWatched = true;
+                S.renderer.domElement.addEventListener('webglcontextlost', (e) => {
+                    this.glLost = { at: Date.now() };
+                    console.error('[XR] CONTESTO WEBGL PERSO: da qui in poi nulla viene piu\' disegnato.');
+                    // Senza preventDefault il contesto non viene mai ripristinato.
+                    e.preventDefault();
+                });
+                S.renderer.domElement.addEventListener('webglcontextrestored', () => {
+                    console.warn('[XR] Contesto WebGL ripristinato.');
+                });
+            }
+
+            session.addEventListener('visibilitychange', (e) => {
+                this.visibility = e.session.visibilityState;
+                console.log(`[XR] Sessione ora "${this.visibility}".`);
+            });
         },
 
         /** Riepilogo in chiaro, per il pannello leggibile dal visore. */
@@ -374,6 +473,10 @@
                 peggiore: `${m.worst.toFixed(0)} ms`,
                 lunghi: `${((m.over / m.n) * 100).toFixed(1)}%`,
                 layerXR: `${(m.xrSum / m.n).toFixed(2)} ms (picco ${m.xrWorst.toFixed(0)})`,
+                // Letto alla fine della sessione dice la cosa decisiva: se i
+                // frame si sono fermati molto prima dell'uscita, il loop era
+                // morto — non era lentezza, era un blocco.
+                fermoDa: `${((performance.now() - (m.lastAt || 0)) / 1000).toFixed(1)} s`,
             };
         },
 

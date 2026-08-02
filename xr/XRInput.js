@@ -1005,8 +1005,26 @@
         /**
          * Stesso ordine di priorità del desktop (`handleModelClick`): figlio
          * interattivo, poi azione sul modello radice.
+         *
+         * Il dispatch entra in `core/`, e da lì si dirama in mezzo sistema:
+         * avanzamento step, animazioni, modali, suoni, DOM. È il punto del
+         * frame in cui è più facile che qualcosa lanci — e un'eccezione qui
+         * arriverebbe fino al loop di render. Viene fermata, annotata
+         * nell'ultimo tocco e lasciata lì: un comando che non risponde è un
+         * problema; una sessione congelata è un altro.
          */
         _press: function (mesh, s) {
+            try {
+                this._dispatch(mesh, s);
+            } catch (err) {
+                const msg = (err && err.message) || String(err);
+                this._note(mesh, `errore nel gestore: ${msg}`, false);
+                console.error('[XRInput] Il gestore del tocco ha lanciato:', msg,
+                    err && err.stack ? String(err.stack).split('\n').slice(0, 3).join(' | ') : '');
+            }
+        },
+
+        _dispatch: function (mesh, s) {
             const S = window.Scene3D;
             const IO = window.InteractiveObject3D;
 

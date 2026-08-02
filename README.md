@@ -276,6 +276,33 @@ porte si aprono e gli oggetti si muovono — ma sugli stessi oggetti di prima,
 riusati e non riallocati: un ciclo di GC dentro un frame XR si vede. Per lo
 stesso motivo sono spariti `filter` e `forEach` dal percorso per-frame.
 
+**Un'eccezione non deve poter uccidere la sessione.** In Three r155 il loop è
+
+```js
+function onAnimationFrame(time, frame) {
+    animationLoop(time, frame);
+    requestId = context.requestAnimationFrame(onAnimationFrame);
+}
+```
+
+— il frame successivo si chiede **dopo** aver eseguito la callback. Se la
+callback lancia, quella riga non viene mai raggiunta: il loop muore per sempre,
+l'applicazione smette di consegnare fotogrammi e il visore resta congelato
+sull'ultimo, immobile anche girando la testa. Un solo errore dentro `core/`,
+raggiunto dal dispatch di un tocco, basta a far sembrare rotta tutta la sessione.
+Ora le due metà del frame hanno ciascuna il proprio `try`, e il dispatch del
+tocco ne ha uno suo: un errore diventa un frame storto e una riga nel log.
+
+**Le due cause che non sono eccezioni** hanno un sensore ciascuna, perché nessun
+`try` le vedrebbe. *Contesto WebGL perso*: la GPU molla, ogni disegno diventa un
+no-op silenzioso, il visore resta sull'ultimo fotogramma. *Sessione non
+visibile*: il menu di sistema mette la sessione in `hidden` e i frame smettono
+legittimamente di arrivare — sembra un blocco e non lo è. Il riepilogo dice
+quale delle due.
+
+Infine, `Ultimo frame` riporta quanto tempo era passato dall'ultimo frame quando
+la sessione è finita: se sono decine di secondi, non era lentezza, era un blocco.
+
 **Misurare invece di indovinare.** Dentro il Quest non si apre un profiler, e
 "perde la sincronia" ha molte cause possibili. Il loop misura durata del frame,
 quota di frame lunghi e quanto ne consuma il layer XR; il riepilogo di

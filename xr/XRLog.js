@@ -131,11 +131,27 @@
             // Fluidità: la domanda "perché perde la sincronia" si risolve qui.
             // Se i frame sforano ma il layer XR costa poco, il collo di
             // bottiglia non è nell'interazione.
+            // Un'eccezione dentro il loop lo ucciderebbe: ora viene catturata,
+            // ma va detta — è il sintomo "si e' piantato tutto".
+            if (X.glLost) add('Contesto WebGL', 'PERSO — nulla viene piu disegnato', false);
+            if (X.visibility && X.visibility !== 'visible') add('Sessione', X.visibility, false);
+
+            const fe = X.frameErrors;
+            if (fe && fe.n) {
+                add('Errori nel frame', `${fe.n} — ${fe.first.dove}: ${fe.first.msg}`, false);
+                if (fe.first.stack) add('Dove', fe.first.stack, false);
+            } else if (fe) {
+                add('Errori nel frame', 'nessuno', true);
+            }
+
             const f = X.frameReport && X.frameReport();
             if (f) {
                 add('Frame', `${f.medio} medi, peggiore ${f.peggiore}`, parseFloat(f.medio) <= X._frameBudgetMs);
                 add('Frame lunghi', `${f.lunghi} oltre ${X._frameBudgetMs} ms`, parseFloat(f.lunghi) < 5);
                 add('Costo layer XR', f.layerXR, parseFloat(f.layerXR) < 2);
+                // Se i frame si sono fermati molto prima dell'uscita, non era
+                // lentezza: era un blocco.
+                add('Ultimo frame', `${f.fermoDa} prima dell'uscita`, parseFloat(f.fermoDa) < 1);
             }
             add('Sfondo', X._prevBackground !== undefined ? 'azzurro applicato' : 'non applicato (mai entrato in VR?)',
                 X._prevBackground !== undefined);
