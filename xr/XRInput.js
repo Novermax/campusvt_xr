@@ -38,9 +38,11 @@
      * Stretto di proposito: il bersaglio deve risultare attivabile solo quando
      * il dito ci è davvero sopra. Con 2,2 cm più l'assistenza magnetica larga
      * l'area di attivazione arrivava a quasi 5 cm e i comandi scattavano da
-     * lontano — sensazione di approssimazione, non di contatto. Con 1,6
-     * scattavano ancora troppo presto (provato sul visore): 1 cm secco, che con
-     * l'assistenza diventa un'attivazione a circa 1,5 cm.
+     * lontano — sensazione di approssimazione, non di contatto.
+     *
+     * È la distanza VERA fra dito e bersaglio, non un valore che l'assistenza
+     * poi allarga: `_radiusFor` ricava da qui la soglia sui bersagli guidati,
+     * così l'attivazione resta a 1 cm qualunque cosa faccia il magnete.
      */
     let POKE_ENTER = 0.010;
     /** Quanto più larga è l'uscita rispetto all'ingresso. */
@@ -534,9 +536,23 @@
             this.candidates = list;
         },
 
-        /** Soglia di contatto: afferrare è più grossolano che premere. */
+        /**
+         * Soglia di contatto, nello spazio in cui la distanza viene misurata.
+         *
+         * Il contatto si misura sul cursore, non sul polpastrello — ma la
+         * soglia si vuole esprimere in distanza VERA: il bersaglio scatta
+         * quando il dito è a {@link POKE_ENTER} da esso, punto. Su un bersaglio
+         * guidato, a quella distanza il cursore ha già percorso quasi tutto il
+         * tratto, e ciò che gli resta è la soglia da usare.
+         *
+         * Derivarla invece di scriverla a mano tiene insieme le due cose: se si
+         * cambia raggio o forza del magnete, la distanza di attivazione resta
+         * esattamente {@link POKE_ENTER} senza ritarature.
+         */
         _radiusFor: function (c) {
-            return c.kind === 'impugnabile' ? GRAB_ENTER : POKE_ENTER;
+            if (c.kind === 'impugnabile') return GRAB_ENTER;
+            if (c.kind === 'evidenziato') return POKE_ENTER * (1 - this._assistFor(c, POKE_ENTER));
+            return POKE_ENTER;
         },
 
         /**
@@ -706,14 +722,12 @@
                 const { hit, hitTip, near, dist, nearTip } = this._probe(s.tips);
 
                 // Isteresi: si esce solo oltre la soglia allargata, così un dito
-                // che trema sul bordo non ripete il comando. Si misura nello
-                // stesso spazio dell'ingresso — quello assistito — altrimenti
-                // con il magnete attivo entrata e uscita si sovrappongono e il
-                // comando parte a raffica.
+                // che trema sul bordo non ripete il comando. Si misura sulla
+                // distanza VERA, come l'ingresso: entrata a 1 cm dal bersaglio,
+                // uscita a 2,2. Per premere di nuovo bisogna staccarsi davvero.
                 if (s.engaged) {
                     let d = Infinity;
                     for (const t of s.tips) d = Math.min(d, s.engaged.box.distanceToPoint(t));
-                    d *= 1 - this._assistFor(s.engaged, d);
                     const exit = s.engaged.kind === 'impugnabile' ? GRAB_ENTER * 1.8 : POKE_EXIT;
                     if (d > exit) { s.engaged = null; this._unlatch(s); }
                 } else if (hit) {

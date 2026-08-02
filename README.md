@@ -133,9 +133,12 @@ entro 12 cm: più larga, con i molti comandi ravvicinati del pulpito, resterebbe
 accesa di continuo. Il lampo non è ridondante rispetto alla vibrazione — con le
 mani l'aptica non esiste.
 
-Tolleranza di contatto **1 cm**, con uscita a 2,2: senza isteresi un dito che
+Distanza di attivazione **1 cm**, con uscita a 2,2: senza isteresi un dito che
 trema a filo del bordo farebbe scattare il pulsante decine di volte al secondo.
-Tarabile a caldo con `XRInput.setPokeRadius(0.02)`.
+È la distanza vera fra dito e bersaglio, e vale identica sui bersagli guidati e
+su quelli no — il magnete rende l'ultimo tratto più facile da percorrere, non
+l'area di attivazione più larga. Tarabile a caldo con
+`XRInput.setPokeRadius(0.02)`.
 
 ##### Dove toccare: un anello piccolo, dello stesso giallo del dito
 
@@ -179,9 +182,14 @@ uscita dalla guida si rientra dolcemente, in una settantina di millisecondi.
 
 La regola che tiene insieme vista e logica: **il contatto si misura sul cursore,
 non sul polpastrello**. Quel che si vede è quel che vale — la sfera arriva sul
-punto e lì il tocco scatta, come un tocco normale. Il bersaglio dello step si
-attiva a **circa 1,5 cm**, contro 1 cm del contatto secco: la differenza è il
-tratto che il dito ha già percorso, visibilmente, dentro il magnete.
+punto e lì il tocco scatta, come un tocco normale.
+
+La soglia però si esprime in **distanza vera**: il bersaglio scatta quando il
+dito è a 1 cm da esso, guidato o no. Su un bersaglio guidato, a quella distanza
+il cursore ha già percorso quasi tutto il tratto, e la soglia da usare è ciò che
+gli resta — `_radiusFor` la ricava dalla curva del magnete invece di scriverla a
+mano, così cambiare raggio o forza non sposta di un millimetro il punto in cui
+il comando scatta.
 
 Vale **solo per i bersagli `evidenziato`**, cioè per l'element chiesto dallo step
 e per gli oggetti impugnabili già facilitati dalla loro soglia larga. Tutto il
