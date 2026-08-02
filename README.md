@@ -55,6 +55,7 @@ campusvt_xr/
 │   └── xr.css
 ├── libs-xr/hands/             modelli di mano W3C, vendorizzati (vedi NOTICE.md)
 ├── assets-xr/pipeline/        (Milestone 2) gltf-transform → models-xr/
+├── tests/                     prove deterministiche, senza visore
 ├── scripts/build.mjs          appiattisce core/ + overlay xr/ → _site/
 ├── .github/workflows/pages.yml
 └── _site/                     output del build (git-ignored)
@@ -86,6 +87,21 @@ HTTP no. Per provare dal visore usa la GitHub Pages (HTTPS) oppure il port forwa
 ADB (`adb reverse tcp:8000 tcp:8000`), che fa vedere al Quest il tuo `localhost`.
 
 ### Test senza visore
+
+```bash
+node tests/run.mjs
+```
+
+Le prove caricano i moduli veri di `xr/` dentro stub di `window`, `document` e
+Three, e verificano la logica con pose simulate. Si controllano soglie e distanze
+di attivazione, continuità dell'attrazione, isteresi, dispatch verso `core/`,
+posizionamento dei pannelli, disambiguazione fra teleport e interfaccia, vincoli
+dell'impugnatura.
+
+Quello che **non** si può controllare così: fluidità, resa, comfort. Dentro una
+sessione immersiva la tab resta `hidden`, rAF è congelato e nessun frame gira,
+quindi il comportamento vero va comunque provato sul Quest — un incremento alla
+volta, leggendo il riepilogo di `📋 Log XR`.
 
 Estensione Chrome **WebXR API Emulator** → emula Quest 3 e i controller.
 
