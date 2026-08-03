@@ -140,7 +140,7 @@ UIX.update();
 check('mostra il contatore del passo', testo().includes('Passo 3 di 21'), testo().slice(0, 40));
 check('mostra il titolo dello step', testo().includes('Titolo dello step 3'));
 check('mostra la descrizione letta dal DOM', testo().includes('Premi il pulsante MDI'));
-check('offre indietro e avanti', visibili() === 'prev,next', visibili());
+check('durante lo step non offre pulsanti di navigazione', visibili() === '', visibili());
 check('e mentre si lavora il fumetto sta a sinistra', UIX.bubble.position.x < -0.4,
     UIX.bubble.position.x.toFixed(2));
 check('e in alto, staccato dagli strumenti', UIX.bubble.position.y > 0.3,
@@ -150,17 +150,19 @@ check('girato verso l operatore, per non leggerlo di taglio',
 check('gli strumenti restano in basso, staccati dal fumetto',
     UIX.toolBar.position.y < UIX.bubble.position.y - 0.2);
 
-// ── 2. Primo passo: niente "indietro" da premere ───────────────────────
+// ── 2. Vale a ogni passo, primo compreso ───────────────────────────────
 stepIndex = 0;
 els.stepCurrentNumber.textContent = '1';
 UIX.update();
-check('al primo passo sparisce indietro', visibili() === 'next', visibili());
-check('e avanti si sposta al centro', Math.abs(UIX.btnNext.position.x) < 1e-9);
+check('nemmeno al primo passo compaiono pulsanti', visibili() === '', visibili());
 
-// ── 3. Premere avanti chiama la stessa strada del mouse ────────────────
-UIX.activate(UIX.btnNext);
-check('avanti chiama UI.nextStep', nav.join(',') === 'next', nav.join(','));
-check('e lo step e cambiato davvero', stepIndex === 1);
+// ── 3. In VR si avanza facendo lo step, non premendo una freccia ───────
+// Il pannello non deve avere alcuna strada per navigare da solo: saltare
+// uno step in VR significa portarsi via l'azione che lo step chiedeva.
+check('il pannello non espone azioni di navigazione',
+    UIX.buttons.every((b) => b.userData.xrUiAction === 'ok'),
+    UIX.buttons.map((b) => b.userData.xrUiAction).join(','));
+check('e non ha mai chiamato UI.nextStep/prevStep', nav.join(',') === '', nav.join(','));
 
 // ── 4. Il modale: era il vero blocco, invisibile in VR ─────────────────
 els.infoModal.classList.add('show');
@@ -177,11 +179,45 @@ check('e col modale aperto gli strumenti non si toccano', strumenti() === '', st
 
 UIX.activate(UIX.btnOk);
 check('OK preme il vero pulsante del modale', els.infoModalOkBtn.clicks === 1);
-check('senza navigare per conto proprio', nav.join(',') === 'next', nav.join(','));
+check('senza navigare per conto proprio', nav.join(',') === '', nav.join(','));
 
 els.infoModal.classList.remove('show');
 UIX.update();
-check('chiuso il modale tornano le frecce', visibili().includes('next'), visibili());
+check('chiuso il modale non resta nulla da premere', visibili() === '', visibili());
+
+// ── 4b. Fine tutorial: era il secondo blocco invisibile ────────────────
+// `core/` costruisce al volo #congratulationsModal e congela la scena con
+// interactionsBlocked. Senza rispecchiarlo, l'ultimo passo lasciava il
+// visore davanti a una scena morta e nessun modo di uscirne.
+const congrats = mkEl('congratulationsModal', '');
+congrats.querySelector = (sel) => ({
+    '.congratulations-header': { innerText: '🎉 Complimenti!', textContent: '🎉 Complimenti!' },
+    '.congratulations-body': {
+        innerText: 'Mario, hai completato con successo il tutorial: "Manutenzione Elettromandrino"',
+        textContent: 'Mario, hai completato con successo il tutorial',
+    },
+}[sel] || null);
+mkEl('congratulationsCloseBtn', 'Continua');
+
+congrats.classList.add('show');
+drawn.length = 0;
+UIX.update();
+check('a tutorial finito mostra le congratulazioni', testo().includes('Complimenti'), testo().slice(0, 40));
+check('col nome del tutorial completato', testo().includes('Elettromandrino'));
+check('e un solo pulsante da premere', visibili() === 'ok', visibili());
+check('che dice Continua, non OK', UIX.btnOk.userData.label === 'Continua', UIX.btnOk.userData.label);
+check('col fumetto al centro, come per ogni modale',
+    UIX.bubble.position.x === 0 && UIX.bubble.position.y === 0);
+
+UIX.activate(UIX.btnOk);
+check('e preme il vero pulsante di core', els.congratulationsCloseBtn.clicks === 1);
+check('senza toccare quello dell altro modale', els.infoModalOkBtn.clicks === 1);
+
+congrats.classList.remove('show');
+delete els.congratulationsModal;
+delete els.congratulationsCloseBtn;
+UIX.update();
+check('e chiuso torna il pulsante a dire OK', UIX.btnOk.userData.label === 'OK', UIX.btnOk.userData.label);
 
 // ── 5. Tutorial non avviato ────────────────────────────────────────────
 stepIndex = -1;

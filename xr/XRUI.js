@@ -15,7 +15,7 @@
  *
  * Il pannello **legge il DOM** (`#stepDescription`, `#stepCurrentNumber`,
  * `#infoModalMessage`, …) e **richiama le stesse funzioni** che userebbe il
- * mouse (`UI.nextStep()`, `UI.prevStep()`, il click sul vero `#infoModalOkBtn`).
+ * mouse (il click sul vero `#infoModalOkBtn`).
  *
  * Non è pigrizia: è l'unico modo per non avere due verità. La logica del
  * tutorial — quando si può avanzare, cosa succede alla chiusura di un modale,
@@ -176,7 +176,7 @@
             // francobollo o un cartellone.
             xrSession.rig.add(this.root);
 
-            // Il fumetto e le sue frecce sono un blocco solo: si spostano
+            // Il fumetto e il suo pulsante sono un blocco solo: si spostano
             // insieme fra il lato e il centro.
             this.bubble = new THREE.Group();
             this.root.add(this.bubble);
@@ -184,17 +184,13 @@
             this.panel = this._makeQuad(PANEL_W, PANEL_H, TEX_W, TEX_H);
             this.bubble.add(this.panel);
 
-            this.btnPrev = this._makeButton('◀  Indietro', 'prev');
-            this.btnNext = this._makeButton('Avanti  ▶', 'next');
+            // Niente Avanti/Indietro: in VR si avanza facendo lo step, come
+            // sul desktop. Resta solo OK, che sblocca i modali informativi.
             this.btnOk = this._makeButton('OK', 'ok');
-            this.buttons = [this.btnPrev, this.btnNext, this.btnOk];
+            this.buttons = [this.btnOk];
 
             const y = -PANEL_H / 2 - BTN_H / 2 - BTN_GAP;
-            this.btnPrev.position.set(-(BTN_W + BTN_GAP) / 2, y, 0);
-            this.btnNext.position.set((BTN_W + BTN_GAP) / 2, y, 0);
             this.btnOk.position.set(0, y, 0);
-            this.bubble.add(this.btnPrev);
-            this.bubble.add(this.btnNext);
             this.bubble.add(this.btnOk);
 
             // Media del modale: sopra il fumetto, quindi si sposta con lui.
@@ -722,6 +718,28 @@
          * click e nient'altro può succedere finché non arriva.
          */
         _readState: function () {
+            // Fine tutorial. `core/` lo costruisce al volo
+            // (`Scene3D.displayCongratulationsModal`) e non è `#infoModal`:
+            // senza rispecchiarlo, l'ultimo passo spegneva la VR in silenzio —
+            // scena congelata da `interactionsBlocked`, messaggio invisibile
+            // perché DOM, e nessun pulsante da premere. Viene prima di tutto
+            // il resto perché è lo stato più bloccante che ci sia.
+            // `.show` arriva 50 ms dopo l'inserimento e sparisce 300 ms prima
+            // della rimozione: è lo stesso segnale di `#infoModal`, e seguirlo
+            // evita di mostrare il pannello mentre il modale sta sfumando.
+            const done = document.getElementById('congratulationsModal');
+            if (done && done.classList.contains('show')) {
+                const h = done.querySelector('.congratulations-header');
+                const b = done.querySelector('.congratulations-body');
+                return {
+                    mode: 'modal',
+                    ok: 'congratulationsCloseBtn',
+                    counter: '',
+                    title: h ? (h.innerText || h.textContent || '').trim() : '🎉 Complimenti!',
+                    body: b ? (b.innerText || b.textContent || '').trim() : '',
+                };
+            }
+
             const modal = document.getElementById('infoModal');
             const modalOpen = !!modal && modal.classList.contains('show');
 
@@ -730,6 +748,7 @@
                 const m = document.getElementById('infoModalMessage');
                 return {
                     mode: 'modal',
+                    ok: 'infoModalOkBtn',
                     counter: '',
                     title: t ? t.textContent.trim() : 'Informazione',
                     // innerText salta i <br> convertiti da \n e restituisce
@@ -750,7 +769,7 @@
                     mode: 'idle',
                     counter: '',
                     title: 'Tutorial non avviato',
-                    body: 'Esci dalla VR e scegli un tutorial dalla pagina, poi rientra.',
+                    body: 'Questo scenario non ha un tutorial attivo. Torna alla hall per sceglierne un altro.',
                 };
             }
 
@@ -772,6 +791,19 @@
 
         update: function () {
             if (!this.enabled || !this.xr.isPresenting) return;
+
+            // Nella hall comanda la hall: fumetto e strumenti parlerebbero di
+            // uno step che non è ancora stato scelto, nello stesso posto in cui
+            // sta l'elenco degli scenari.
+            const inHall = !!(window.XRHall && window.XRHall.isVisible && window.XRHall.isVisible());
+            if (inHall !== this._inHall) {
+                this._inHall = inHall;
+                this.root.visible = this._visible && !inHall;
+                // I bersagli cambiano: XRInput deve rifare l'elenco, o i
+                // pulsanti resterebbero premibili da invisibili.
+                this.version++;
+            }
+            if (inHall) return;
 
             const st = this._readState();
             const key = `${st.mode}|${st.counter}|${st.title}|${st.body}`;
@@ -798,13 +830,19 @@
 
         /**
          * Quali pulsanti hanno senso adesso.
-         * Con un modale aperto esiste solo OK: offrire "Avanti" mentre `core/`
-         * aspetta la chiusura del modale porterebbe a due navigazioni in volo.
+         * Resta il solo OK, e solo con un modale aperto: è il pulsante che
+         * sblocca `core/`, fermo ad aspettarne la chiusura.
          */
         _applyButtons: function (st) {
             const modal = st.mode === 'modal';
-            const prev = !modal && st.mode === 'step' && st.idx > 0;
-            const next = !modal && st.mode === 'step';
+
+            // A fine tutorial il pulsante non chiude un avviso, prosegue: la
+            // parola giusta è quella del desktop.
+            const label = st.ok === 'congratulationsCloseBtn' ? 'Continua' : 'OK';
+            if (this.btnOk.userData.label !== label) {
+                this.btnOk.userData.label = label;
+                this._drawButton(this.btnOk, false);
+            }
 
             // Gli strumenti si scelgono solo mentre si sta facendo uno step.
             // Con un modale aperto il desktop blocca tutto ciò che sta dietro,
@@ -814,13 +852,9 @@
             const toolsOn = st.mode === 'step';
 
             const changed = this.btnOk.visible !== modal
-                || this.btnPrev.visible !== prev
-                || this.btnNext.visible !== next
                 || this._toolsOn !== toolsOn;
 
             this.btnOk.visible = modal;
-            this.btnPrev.visible = prev;
-            this.btnNext.visible = next;
             this._toolsOn = toolsOn;
             this.tools.forEach((t) => { t.visible = toolsOn; });
 
@@ -828,10 +862,6 @@
             // è lui il compito, e torna in mezzo, davanti e dritto.
             this.bubble.position.set(modal ? 0 : -SIDE_X, modal ? 0 : RAISE, 0);
             this.bubble.rotation.y = modal ? 0 : SIDE_YAW * Math.PI / 180;
-
-            // Con una freccia sola, al centro: due pulsanti asimmetrici ai lati
-            // si prendono a caso.
-            this.btnNext.position.x = prev ? (BTN_W + BTN_GAP) / 2 : 0;
 
             // I bersagli premibili sono cambiati: XRInput deve rifare l'elenco.
             if (changed) this.version++;
@@ -892,17 +922,17 @@
 
         /** Bersagli premibili, per XRInput. */
         targets: function () {
-            if (!this.enabled || !this._visible) return null;
+            if (!this.enabled || !this._visible || this._inHall) return null;
             return this.buttons.concat(this.tools).filter((b) => b.visible);
         },
 
         /**
          * Esegue l'azione di un pulsante.
          *
-         * Sempre passando per le stesse strade del mouse: `UI.nextStep()`,
-         * `UI.prevStep()`, e per il modale un click vero sul pulsante vero —
-         * è quel click che risolve la promise su cui `core/` è fermo, e
-         * riprodurne gli effetti a mano vorrebbe dire riscriverne la chiusura.
+         * Sempre passando per le stesse strade del mouse: per il modale un
+         * click vero sul pulsante vero — è quel click che risolve la promise
+         * su cui `core/` è fermo, e riprodurne gli effetti a mano vorrebbe
+         * dire riscriverne la chiusura.
          *
          * @returns {boolean} true se l'azione è stata riconosciuta.
          */
@@ -927,19 +957,14 @@
             this._flash(mesh);
 
             if (action === 'ok') {
-                const btn = document.getElementById('infoModalOkBtn');
-                if (btn) { btn.click(); console.log('[XRUI] Modale chiuso.'); }
-                return true;
-            }
-            const U = window.UI;
-            if (action === 'next' && U && typeof U.nextStep === 'function') {
-                U.nextStep();
-                console.log('[XRUI] Avanti.');
-                return true;
-            }
-            if (action === 'prev' && U && typeof U.prevStep === 'function') {
-                U.prevStep();
-                console.log('[XRUI] Indietro.');
+                // Quale modale sia aperto lo dice lo stato appena letto; il
+                // DOM resta l'arbitro se lo stato non è ancora arrivato.
+                const id = (this._state && this._state.ok)
+                    || (document.getElementById('congratulationsCloseBtn')
+                        ? 'congratulationsCloseBtn'
+                        : 'infoModalOkBtn');
+                const btn = document.getElementById(id);
+                if (btn) { btn.click(); console.log(`[XRUI] Modale chiuso (${id}).`); }
                 return true;
             }
             return false;
@@ -959,7 +984,7 @@
         /** Mostra o nasconde il pannello. Nascosto non è nemmeno premibile. */
         setVisible: function (on) {
             this._visible = !!on;
-            if (this.root) this.root.visible = this._visible;
+            if (this.root) this.root.visible = this._visible && !this._inHall;
             this.version++;
             return this._visible;
         },

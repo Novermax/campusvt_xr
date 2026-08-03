@@ -176,9 +176,9 @@
          * Senza questa attesa il puntamento è pericoloso. Il raggio spazza la
          * scena a ogni movimento del braccio, e un pinch fatto per teleportarsi
          * preme qualunque comando gli capiti sotto in quell'istante: basta che
-         * "Avanti" passi davanti al raggio e lo step salta, portandosi via —
-         * per dire — la spruzzata di spray. Un comando che si attiva di
-         * passaggio è peggio di un comando irraggiungibile.
+         * lo strumento sbagliato passi davanti al raggio e ci si ritrova la
+         * brugola in mano davanti a un passo da spray. Un comando che si attiva
+         * di passaggio è peggio di un comando irraggiungibile.
          *
          * Restare fermi un terzo di secondo sullo stesso bersaglio è invece un
          * gesto che non si fa per caso. Finché non è armato il raggio resta

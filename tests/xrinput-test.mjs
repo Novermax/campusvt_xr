@@ -390,6 +390,26 @@ check('e si attiva alla stessa distanza degli altri', ui !== null && Math.abs(di
 check('la pressione va al pannello, non ai modelli', premuti.join(',') === 'next', premuti.join(','));
 check('e l esito lo dice', !!XI.lastTouch && XI.lastTouch.esito.includes('pannello'),
     XI.lastTouch ? XI.lastTouch.esito : '-');
+
+// 13b. A tutorial finito la scena si congela, il pannello no.
+//      `interactionsBlocked` spegneva OGNI sorgente: il messaggio di fine
+//      restava li' con il suo pulsante e nessun modo di premerlo.
+const modello = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.075, 0.005));
+modello.userData.interactive = true;
+const cModello = { mesh: modello, kind: 'interattivo', box: mkBox(0, 1.2, 0) };
+
+Scene3D.tutorialTracker.interactionsBlocked = true;
+XI.candidates = [cModello];
+reset();
+frame(0, 1.2, 0.0);
+check('a tutorial finito la macchina non si tocca piu', !src().engaged);
+
+XI.candidates = [cUi];
+reset();
+frame(0, 1.2, 0.0);
+check('ma il pannello resta premibile, o non si esce piu', !!src().engaged);
+Scene3D.tutorialTracker.interactionsBlocked = false;
+
 delete window.XRUI;
 
 

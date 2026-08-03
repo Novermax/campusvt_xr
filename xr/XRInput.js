@@ -263,6 +263,7 @@
             this._lastRebuild = 0;
 
             if (window.XRUI) window.XRUI.init(xrSession);
+            if (window.XRHall) window.XRHall.init(xrSession);
             if (window.XRLocomotion) window.XRLocomotion.init(xrSession, this);
             if (window.XRHold) window.XRHold.attach(xrSession, this);
 
@@ -275,6 +276,7 @@
             // originale finché le ancore esistono ancora.
             if (window.XRHold) window.XRHold.detach();
             if (window.XRLocomotion) window.XRLocomotion.dispose();
+            if (window.XRHall) window.XRHall.dispose();
             if (window.XRUI) window.XRUI.dispose();
             this.sources.forEach((s) => {
                 if (s.controller.parent) s.controller.parent.remove(s.controller);
@@ -607,6 +609,7 @@
                 HS && HS.currentlyHeldList ? HS.currentlyHeldList.length : 0,
                 U && U.currentStepIndex !== undefined ? U.currentStepIndex : -1,
                 window.XRUI ? window.XRUI.version : 0,
+                window.XRHall ? window.XRHall.version : 0,
                 // L'ancora nasce un istante dopo la presa: senza questo, il
                 // "cosa sta in mano" resterebbe fermo a prima.
                 window.XRHold && window.XRHold.getAnchor && window.XRHold.getAnchor() ? 1 : 0,
@@ -711,10 +714,17 @@
             }
 
             // I pulsanti del pannello in-world: si premono col dito come tutto
-            // il resto, quindi passano di qui e non da un sistema a parte.
+            // il resto, quindi passano di qui e non da un sistema a parte. Le
+            // card della hall sono la stessa cosa, e vanno nella stessa
+            // categoria: `kind: 'ui'` è ciò che le tiene premibili anche a
+            // tutorial finito, quando la scena è congelata (vedi `update`).
             const UIX = window.XRUI;
             const uiTargets = UIX && UIX.targets ? UIX.targets() : null;
             if (uiTargets) for (const m of uiTargets) add(m, 'ui');
+
+            const HALL = window.XRHall;
+            const hallTargets = HALL && HALL.targets ? HALL.targets() : null;
+            if (hallTargets) for (const m of hallTargets) add(m, 'ui');
 
             // Poi tutti i figli interattivi dei modelli caricati.
             (S.loadedModels || []).forEach((m) => {
@@ -893,13 +903,18 @@
             }
 
             const S = window.Scene3D;
-            const blocked = S.tutorialTracker && S.tutorialTracker.interactionsBlocked;
+            // A tutorial completato `core/` congela le interazioni con la
+            // macchina. Il pannello in-world però deve restare premibile: è
+            // lui a mostrare le congratulazioni, ed è il suo unico pulsante a
+            // farne uscire. Bloccare anche quello lascia il visore davanti a
+            // una scena morta, senza niente da toccare.
+            const blocked = !!(S.tutorialTracker && S.tutorialTracker.interactionsBlocked);
             let hovered = null;
 
             for (const s of this.sources) {
                 // La mano si disegna DOPO aver deciso l'aggancio: la posa
                 // mostrata dipende da quello.
-                if (!this._updateTip(s) || blocked) {
+                if (!this._updateTip(s)) {
                     s.cursor.visible = false;
                     s.engaged = null;
                     this._unlatch(s);
@@ -912,7 +927,7 @@
                     && window.XRHold.getAnchor && window.XRHold.getAnchor()
                     && window.XRHold.getHand() === s.hand);
                 s._holding = holding;
-                const { hit, hitTip, near, dist, nearTip } = this._probe(s.tips, holding);
+                const { hit, hitTip, near, dist, nearTip } = this._probe(s.tips, holding, blocked);
 
                 // Isteresi: si esce solo oltre la soglia allargata, così un dito
                 // che trema sul bordo non ripete il comando. Si misura sulla
@@ -967,6 +982,7 @@
             this._updateHighlights(now);
 
             if (window.XRUI) window.XRUI.update();
+            if (window.XRHall) window.XRHall.update();
             if (window.InteractiveObject3D) window.InteractiveObject3D.handleHover(hovered);
             if (window.XRLocomotion) window.XRLocomotion.update(this.sources);
         },
@@ -1002,7 +1018,7 @@
          *          bersaglio toccato e punto della mano che l'ha toccato,
          *          bersaglio vicino, distanza grezza e punto più vicino.
          */
-        _probe: function (tips, isHoldingHand) {
+        _probe: function (tips, isHoldingHand, uiOnly) {
             let hit = null;
             let hitTip = null;
             let near = null;
@@ -1011,6 +1027,11 @@
             let bestNear = Infinity;
 
             for (const c of this.candidates) {
+                // A tutorial finito la scena è congelata, ma il pannello no:
+                // è lui che porta il messaggio di fine e l'unico modo di
+                // uscirne. Vedi `update`.
+                if (uiOnly && c.kind !== 'ui') continue;
+
                 // La mano che regge un oggetto non ne preme i pulsanti: li ha
                 // già addosso. Li preme l'altra, che è esattamente il gesto
                 // vero — telecomando in una mano, dito nell'altra.
@@ -1218,12 +1239,18 @@
             const IO = window.InteractiveObject3D;
 
             // Il pannello in-world per primo: è sopra la scena, non dentro, e
-            // non deve passare per il dispatch dei modelli.
-            if (mesh.userData && mesh.userData.xrUiAction && window.XRUI) {
-                if (window.XRUI.activate(mesh)) {
-                    this._confirm(s);
-                    this._note(mesh, `pannello: ${mesh.userData.xrUiAction}`);
-                    return;
+            // non deve passare per il dispatch dei modelli. Pannello e hall si
+            // dividono lo stesso `xrUiAction`: ciascuno riconosce le proprie
+            // azioni e restituisce false sulle altre, quindi l'ordine qui non
+            // decide nulla e non serve un registro centrale.
+            if (mesh.userData && mesh.userData.xrUiAction) {
+                const owners = [window.XRUI, window.XRHall];
+                for (const o of owners) {
+                    if (o && o.activate && o.activate(mesh)) {
+                        this._confirm(s);
+                        this._note(mesh, `pannello: ${mesh.userData.xrUiAction}`);
+                        return;
+                    }
                 }
             }
 
