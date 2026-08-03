@@ -111,6 +111,10 @@ testa.position.set(0.8, 1.7, -0.4);
 testa.quaternion.setFromEuler(new THREE.Euler(0, 0.61, 0, 'YXZ'));
 rig.add(testa);
 window.Scene3D = { camera: testa };
+XS._calibrated = true;   // l'altezza non c'entra: qui si guarda la pianta
+
+/** Un frame: `_sampleHead` prende l'istantanea della posa, come nel loop vero. */
+const unFrame = () => XS._sampleHead();
 
 const mondo = new THREE.Vector3();
 const avantiTesta = new THREE.Vector3();
@@ -125,6 +129,7 @@ for (const scala of [1, 0.769]) {          // scala 1 e mondo ingrandito 1,3×
     rig.position.set(0, 0, 0);
     rig.rotation.y = 0;
 
+    unFrame();
     XS.placeRigForScenario(elettromandrino);
     misura();
 
@@ -142,8 +147,36 @@ for (const scala of [1, 0.769]) {          // scala 1 e mondo ingrandito 1,3×
         Math.hypot(rig.position.x - (-1.11), rig.position.z - 3.97) > 0.1);
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// E la posa va letta al momento giusto.
+//
+// `core/` scrive il CameraPos dello scenario DENTRO la camera del rig
+// (applyScenarioConfiguration, core/js/ui.js:1249) e lo fa dentro
+// `loadScenario`, cioè un attimo prima che la hall chieda di posizionare
+// l'osservatore. Chi legge la camera in quel momento scambia il punto di
+// vista dello scenario per la posizione della testa e compensa di 4 metri,
+// finendo nell'origine: dentro la macchina. Sul Quest è successo davvero.
+// ─────────────────────────────────────────────────────────────────────────
+rig.scale.setScalar(0.769);
+rig.position.set(0, 0, 0);
+rig.rotation.y = 0;
+
+unFrame();                                   // istantanea della posa vera
+testa.position.set(-1.11, 1.44, 3.97);       // ...e poi core ci scrive sopra
+
+XS.placeRigForScenario(elettromandrino);
+testa.position.set(0.8, 1.7, -0.4);          // il render successivo la ripristina
+misura();
+
+check('la posa e quella campionata nel frame, non quella scritta da core',
+    Math.abs(mondo.x - (-1.11)) < 1e-6 && Math.abs(mondo.z - 3.97) < 1e-6,
+    `(${mondo.x.toFixed(3)}, ${mondo.z.toFixed(3)})`);
+check('e non si finisce nell origine, cioe dentro la macchina',
+    Math.hypot(mondo.x, mondo.z) > 3, `a ${Math.hypot(mondo.x, mondo.z).toFixed(2)} m dall origine`);
+
 // Senza posa della testa leggibile si ripiega sul comportamento di prima,
 // invece di compensare con dati inventati.
+XS._headLocal = null;
 rig.remove(testa);
 rig.scale.setScalar(1);
 rig.position.set(0, 0, 0);

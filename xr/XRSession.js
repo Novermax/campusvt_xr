@@ -63,6 +63,7 @@
     /** Scratch riusato nel loop per non allocare a ogni frame. THREE arriva tardi
      *  (lo importa core/js/app.js come ES module), quindi si crea al primo uso. */
     let _tmpVec = null;
+    let _tmpEuler = null;
 
     const XRSession = {
         version: '1.0.0-m1',
@@ -87,6 +88,8 @@
         _listeners: { enter: [], exit: [], scale: [] },
         _rigBaseY: 0,
         _headSamples: [],
+        /** Ultima posa orizzontale della testa nel rig, campionata a inizio frame. */
+        _headLocal: null,
         _calibrated: false,
         _lastTuneTime: null,
         _lastHapticStep: null,
@@ -634,6 +637,8 @@
             if (this.rig) return;
 
             if (!_tmpVec) _tmpVec = new THREE.Vector3();
+            if (!_tmpEuler) _tmpEuler = new THREE.Euler();
+            this._headLocal = null;
 
             const rig = new THREE.Group();
             rig.name = 'XRRig';
@@ -672,6 +677,8 @@
 
             this.rig = null;
             this._cameraRestore = null;
+            // Una posa di ieri non deve compensare la sessione di domani.
+            this._headLocal = null;
         },
 
         /**
@@ -799,23 +806,20 @@
         /**
          * Posa orizzontale della testa **dentro il rig**: dove sei in stanza.
          *
-         * Three ricopia la posa del visore sulla camera dell'applicazione a ogni
-         * frame (`WebXRManager.updateCamera`), quindi `camera.position` e
-         * `camera.quaternion` sono già le coordinate locali cercate — a patto
-         * che la camera sia davvero figlia del rig e che un frame sia passato.
+         * Non legge la camera: restituisce l'istantanea presa da `_sampleHead`
+         * a inizio frame. La camera è un bene condiviso con `core/`, che ci
+         * scrive sopra il punto di vista degli scenari — vedi il commento in
+         * `_sampleHead` per il perché il momento della lettura conta.
          *
-         * @returns {{x:number, z:number, yaw:number}|null} null se la posa non è
-         * ancora leggibile: chi chiama ripiega sul non compensare, che è il
-         * comportamento di prima e non peggiora nulla.
+         * @returns {{x:number, z:number, yaw:number}|null} null finché non è
+         * arrivata una posa valida: chi chiama ripiega sul non compensare, che
+         * è il comportamento di prima e non peggiora nulla.
          */
         _headPose: function () {
             const S = window.Scene3D;
-            const THREE = window.THREE;
             if (!S || !S.camera || !this.rig) return null;
             if (S.camera.parent !== this.rig) return null;
-
-            const e = new THREE.Euler().setFromQuaternion(S.camera.quaternion, 'YXZ');
-            return { x: S.camera.position.x, z: S.camera.position.z, yaw: e.y };
+            return this._headLocal || null;
         },
 
         /** "(x, y, z)" → Vector3. Il formato è quello di `homeconfig.ini`. */
@@ -1003,14 +1007,41 @@
             console.log(`[XR] Altezza occhi impostata: ${meters === null ? 'automatica' : meters.toFixed(2) + ' m'}`);
         },
 
-        /** Raccoglie la posa verticale della testa; calibra una volta raggiunti i campioni. */
+        /** Raccoglie la posa della testa; calibra l'altezza una volta raggiunti i campioni. */
         _sampleHead: function () {
             const S = window.Scene3D;
             if (!this.rig || !S || !S.camera) return;
 
+            // Di norma li crea `_attachRig`, ma non dipendiamo dall'ordine.
+            if (!_tmpVec) _tmpVec = new window.THREE.Vector3();
+            if (!_tmpEuler) _tmpEuler = new window.THREE.Euler();
+
             const h = S.camera.getWorldPosition(_tmpVec).y - this.rig.position.y;
             if (!Number.isFinite(h) || h <= 0.2) return; // posa non ancora valida
             this.measuredEyeHeight = h;
+
+            /*
+             * Istantanea della posa orizzontale, presa QUI e non quando serve.
+             *
+             * `Scene3D.camera` è figlia del rig, quindi la sua posa locale è
+             * quella del visore — ma solo finché nessuno ci scrive sopra, e
+             * `core/` lo fa: `applyScenarioConfiguration` (core/js/ui.js:1249)
+             * esegue `camera.position.set(...)` con il `CameraPos` desktop dello
+             * scenario. Succede dentro `loadScenario`, cioè un attimo prima che
+             * la hall chieda di posizionare l'osservatore: leggendo la camera in
+             * quel momento si scambiava il punto di vista dello scenario per la
+             * posizione della testa, e la compensazione portava dritti
+             * nell'origine — dentro la macchina (riscontrato sul Quest il
+             * 2026-08-03).
+             *
+             * Qui invece siamo a inizio frame, prima di `XRInput.update()` da
+             * cui parte la pressione sulla card, e subito dopo il `render` del
+             * frame precedente che ha riscritto la posa vera. Quel che `core/`
+             * scrive dopo dura fino al `render` successivo, che lo sovrascrive:
+             * non arriva mai a questa istantanea.
+             */
+            _tmpEuler.setFromQuaternion(S.camera.quaternion, 'YXZ');
+            this._headLocal = { x: S.camera.position.x, z: S.camera.position.z, yaw: _tmpEuler.y };
 
             if (this._calibrated) return;
             this._headSamples.push(h);
