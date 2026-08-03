@@ -93,6 +93,11 @@
             const btn = login.querySelector('.btn-login, button[type="submit"]');
             if (btn) btn.textContent = ENTRA;
 
+            // Distinguere il login digitato dalla sessione ripristinata: solo il
+            // primo è un gesto dell'utente, e solo un gesto può aprire la VR.
+            // `capture` perché core/ fa preventDefault sullo stesso evento.
+            login.addEventListener('submit', () => { this._userGesture = true; }, true);
+
             const user = document.getElementById('username');
             if (user) user.focus();
 
@@ -121,15 +126,80 @@
             const lang = (window.currentUser && window.currentUser.language) || 'default';
             console.log(`[XRCover] Accesso riuscito (lingua: ${lang}).`);
 
+            const XS = window.XRSession;
+
+            // Sessione ripristinata da localStorage: `core/` ha scoperto
+            // `#container` da solo, senza che nessuno abbia premuto niente. Non
+            // esiste quindi la user activation che `requestSession` pretende, e
+            // togliere il velo mostrerebbe la griglia 2D — proprio ciò che il
+            // flusso esclude. La copertina resta, e al posto dei campi c'è il
+            // solo ENTRA: un gesto, lo stesso del documento, e si è dentro.
+            if (!this._userGesture) {
+                console.log('[XRCover] Sessione ripristinata senza gesto: la copertina resta, si entra con ENTRA.');
+                this._showEnterOnly();
+                return;
+            }
+
             // Il velo se ne va, ma il gesto che lo ha tolto è ancora "fresco":
             // è con quello che XRSession entra in VR, senza chiederne un altro.
             this._remove();
 
-            const XS = window.XRSession;
             if (!XS || !XS.enterAfterLogin) return;
 
             const entrato = await XS.enterAfterLogin();
-            if (!entrato && XS.supported) this._offerVR();
+            if (!entrato && await this._vrExists(XS)) this._offerVR();
+        },
+
+        /**
+         * `XRSession.supported` nasce `null` e diventa vero/falso solo quando la
+         * sonda async (`isSessionSupported`) risponde. Leggerlo al volo durante
+         * il caricamento pagina è una race: sul Quest rispondeva `null` e il
+         * fallback non compariva mai. Qui si aspetta la risposta, poco e con
+         * scadenza — se la sonda non risponde, la VR non c'è.
+         */
+        _vrExists: function (XS, timeoutMs = 4000) {
+            return new Promise((resolve) => {
+                const deadline = Date.now() + timeoutMs;
+                const check = () => {
+                    if (!XS) return resolve(false);
+                    if (XS.supported !== null && XS.supported !== undefined) return resolve(!!XS.supported);
+                    if (Date.now() > deadline) return resolve(false);
+                    setTimeout(check, 100);
+                };
+                check();
+            });
+        },
+
+        /**
+         * La copertina con il solo ENTRA: per chi è già autenticato ma deve
+         * ancora fare il gesto che apre la VR.
+         *
+         * Anche senza visore il pulsante c'è e fa la cosa giusta — toglie il
+         * velo e lascia la home 2D. Così il desktop vede lo stesso flusso:
+         * copertina → ENTRA → dentro, qualunque cosa "dentro" sia lì.
+         */
+        _showEnterOnly: function () {
+            const slot = document.getElementById('xrCoverLogin') || this.el;
+            if (!slot) return;
+
+            // Il form di core/ è già nascosto (classe `hidden`), ma sta ancora
+            // qui dentro: si lascia dov'è, serve al prossimo logout.
+            const btn = document.createElement('button');
+            btn.id = 'xrCoverEnter';
+            btn.type = 'button';
+            btn.className = 'btn-login xr-cover-enter';
+            btn.textContent = ENTRA;
+            slot.appendChild(btn);
+            btn.focus();
+
+            btn.addEventListener('click', async () => {
+                btn.disabled = true;
+                this._remove();
+                const XS = window.XRSession;
+                if (!XS || !XS.enterAfterLogin) return;
+                const entrato = await XS.enterAfterLogin();
+                if (!entrato && await this._vrExists(XS)) this._offerVR();
+            });
         },
 
         /**
