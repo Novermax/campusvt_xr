@@ -1,32 +1,43 @@
 /**
- * XRCover.js — la copertina, e il perché di un gesto in più.
+ * XRCover.js — la copertina, che è anche la schermata di accesso.
  *
- * La versione WebXR si apre su un quadro a tutta pagina con un solo pulsante:
- * **Entra**. Premutolo, si scopre il login di sempre e da lì si prosegue.
+ * La versione WebXR si apre su un quadro a tutta pagina con dentro i campi di
+ * sempre — utente, password — e il pulsante **ENTRA**. Premutolo, si è dentro:
+ * autenticazione, lingua dell'utente, e da lì direttamente nella Home in VR.
  *
- * Sembra un passaggio in più, e lo è: serve a comprare un gesto dell'utente.
- * Due cose, nel browser del visore, non si possono fare da sole al caricamento
- * della pagina, per regola dei browser e non per scelta nostra:
+ * ## Una schermata sola, e perché
  *
- *  - **entrare in una sessione immersiva** richiede una *user activation*, cioè
- *    un tocco vero. Senza, `requestSession` viene rifiutata;
- *  - **l'audio** non parte finché non c'è stata un'interazione.
+ * Il visore non è un desktop: la pagina si apre in un browser che galleggia in
+ * aria, spesso mentre ci si sta ancora sistemando le cinghie. Ogni passaggio in
+ * più è un bersaglio in più da centrare con il raggio. Copertina *e poi* login
+ * erano due schermate per fare una cosa sola.
  *
- * Con l'ingresso diretto sul login quel gesto è la pressione di «Accedi», che
- * arriva quando la sessione non è ancora pronta e non si può ancora usare. La
- * copertina lo sposta all'inizio, dove non dà fastidio a nessuno.
+ * Ma il motivo vero è tecnico. Entrare in una sessione immersiva richiede una
+ * **user activation**: un tocco vero, recente, altrimenti `requestSession` viene
+ * rifiutata — è regola dei browser, non scelta nostra. Se il login sta altrove,
+ * il gesto che lo conclude è l'ultimo della pagina, e da lì bisognerebbe
+ * chiederne un altro per entrare in VR. Mettendo il login *nella* copertina,
+ * quel gesto è la pressione di ENTRA: uno solo, e porta fino dentro il mondo.
  *
- * L'altro motivo è che il visore non è un desktop: la pagina si apre dentro un
- * browser che galleggia in aria, spesso mentre ci si sta ancora sistemando le
- * cinghie. Una schermata unica e ferma, con un solo bersaglio grande, è molto
- * più facile da centrare di un modulo con due campi di testo.
+ * ## Il form è quello di `core/`, spostato — non uno nuovo
  *
- * Non tocca `core/`: la copertina è un velo sopra la pagina, e quando si toglie
- * sotto c'è esattamente ciò che ci sarebbe stato comunque.
+ * Qui non si autentica nessuno. `#loginPage` viene **spostato dentro** la
+ * copertina, con i suoi campi, il suo submit e la sua logica: `core/` legge
+ * `users.txt`, verifica le credenziali, ricava la lingua e ricarica la
+ * configurazione tradotta. Riscrivere quel pezzo significherebbe avere due
+ * autenticazioni che divergono al primo cambiamento a monte — e una delle due
+ * sarebbe la nostra, senza le scadenze account e senza i ruoli.
+ *
+ * Non tocca `core/`: si sposta un nodo nel DOM e si cambia l'etichetta di un
+ * pulsante, tutto da JavaScript.
  */
 
 (function () {
     'use strict';
+
+    /** Etichetta del pulsante, nelle lingue di `users.txt`. La lingua vera si
+     *  conosce solo DOPO il login: qui si può solo restare neutri e corti. */
+    const ENTRA = 'ENTRA';
 
     const XRCover = {
         el: null,
@@ -36,31 +47,90 @@
             if (!el) return;
             this.el = el;
 
-            const btn = document.getElementById('xrCoverEnter');
-            if (btn) btn.addEventListener('click', () => this.enter());
-
             // La copertina non deve poter diventare una trappola: se l'immagine
             // non arriva — cache vuota, rete lenta, file rinominato a monte —
-            // resta comunque il pulsante su fondo pieno. Meglio una copertina
+            // resta comunque il modulo su fondo pieno. Meglio una copertina
             // spoglia che una pagina che non si supera.
             const art = document.getElementById('xrCoverArt');
             if (art) art.addEventListener('error', () => {
                 art.style.display = 'none';
-                console.warn('[XRCover] Copertina non caricata: resta il solo pulsante.');
+                console.warn('[XRCover] Copertina non caricata: resta il solo modulo di accesso.');
             });
 
-            // Con la tastiera: Invio o Spazio su qualunque punto del velo.
-            el.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.enter(); }
-            });
-            if (btn) btn.focus();
-
-            console.log('[XRCover] Copertina mostrata.');
+            this._adoptLogin();
+            console.log('[XRCover] Copertina con accesso mostrata.');
         },
 
-        /** Toglie il velo. Una volta sola: non c'è modo di tornare indietro,
-         *  e non deve esserci — dietro c'è il login, che ha già il suo. */
-        enter: function () {
+        /**
+         * Porta il login di `core/` dentro la copertina.
+         *
+         * Si aspetta che esista: `#loginPage` è nel markup statico, ma questo
+         * script gira in coda al body e potrebbe arrivare prima che il resto
+         * della pagina sia completo. Il polling è breve e si arrende, invece di
+         * insistere: senza il form la copertina non deve restare a coprire una
+         * pagina di login funzionante ma nascosta sotto.
+         */
+        _adoptLogin: function (tentativi) {
+            const n = tentativi || 0;
+            const login = document.getElementById('loginPage');
+
+            if (!login) {
+                if (n > 40) {
+                    console.warn('[XRCover] #loginPage non trovato: copertina rimossa per non bloccare l\'accesso.');
+                    this._remove();
+                    return;
+                }
+                setTimeout(() => this._adoptLogin(n + 1), 50);
+                return;
+            }
+
+            const slot = document.getElementById('xrCoverLogin');
+            (slot || this.el).appendChild(login);
+            login.classList.add('xr-cover-login');
+
+            // «Accedi» diventa «ENTRA»: è la parola del documento, ed è anche
+            // più giusta qui — non si accede a una pagina, si entra in un posto.
+            const btn = login.querySelector('.btn-login, button[type="submit"]');
+            if (btn) btn.textContent = ENTRA;
+
+            const user = document.getElementById('username');
+            if (user) user.focus();
+
+            // Il velo si toglie quando `core/` scopre `#container`, cioè a
+            // credenziali accettate. Osservare quello invece di agganciarsi al
+            // submit evita di indovinare l'esito: il login può fallire, e in
+            // quel caso si deve restare qui a vedere il messaggio d'errore.
+            this._watchLogin();
+        },
+
+        /** Aspetta che `core/` dichiari il login riuscito scoprendo `#container`. */
+        _watchLogin: function () {
+            const container = document.getElementById('container');
+            if (!container) return;
+
+            const fatto = () => !container.classList.contains('hidden');
+            if (fatto()) return this._loggedIn();
+
+            const obs = new MutationObserver(() => {
+                if (fatto()) { obs.disconnect(); this._loggedIn(); }
+            });
+            obs.observe(container, { attributes: true, attributeFilter: ['class'] });
+        },
+
+        _loggedIn: function () {
+            const lang = (window.currentUser && window.currentUser.language) || 'default';
+            console.log(`[XRCover] Accesso riuscito (lingua: ${lang}).`);
+
+            // Il velo se ne va, ma il gesto che lo ha tolto è ancora "fresco":
+            // è con quello che XRSession entra in VR, senza chiederne un altro.
+            this._remove();
+            if (window.XRSession && window.XRSession.enterAfterLogin) {
+                window.XRSession.enterAfterLogin();
+            }
+        },
+
+        /** Toglie il velo. Una volta sola: dietro c'è la pagina vera. */
+        _remove: function () {
             if (!this.el || this.el.classList.contains('xr-cover--gone')) return;
             this.el.classList.add('xr-cover--gone');
             // Rimosso dopo la dissolvenza: lasciarlo, anche invisibile,
@@ -70,7 +140,6 @@
                 if (this.el && this.el.parentNode) this.el.parentNode.removeChild(this.el);
                 this.el = null;
             }, 450);
-            console.log('[XRCover] Ingresso: si passa al login.');
         },
     };
 

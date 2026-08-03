@@ -31,36 +31,74 @@
     object-position: center;
 }
 
-#xrCoverEnter {
-    /* Ancorato al fondo, non centrato: la copertina ha il suo soggetto in
-       mezzo, e un pulsante lì sopra lo copre proprio mentre lo si guarda. */
+/* Il modulo di accesso, spostato qui dentro da XRCover: ancorato in basso,
+   perché la copertina ha il suo soggetto in mezzo e un pannello lì sopra lo
+   coprirebbe proprio mentre lo si guarda. */
+#xrCoverLogin {
     position: absolute;
-    bottom: 7%;
+    bottom: 4%;
     left: 50%;
     transform: translateX(-50%);
-
-    padding: 20px 64px;
-    border: 0;
-    border-radius: 999px;
-
-    font: 700 22px/1 system-ui, -apple-system, Segoe UI, sans-serif;
-    color: #fff;
-    background: rgba(20, 90, 170, .96);
-
-    cursor: pointer;
-    /* Molto più grande della barra XR: qui si punta col raggio del visore
-       mentre ci si sta ancora sistemando le cinghie. */
-    min-width: 260px;
-    min-height: 68px;
-
-    box-shadow: 0 6px 26px rgba(0, 0, 0, .55);
-    transition: background .15s, transform .1s;
+    width: min(92vw, 460px);
+    max-height: 62vh;
+    overflow-y: auto;
 }
 
-#xrCoverEnter:hover { background: rgba(26, 110, 205, .98); }
-/* La traslazione va ripetuta: `transform` non si somma, si sostituisce. */
-#xrCoverEnter:active { transform: translateX(-50%) scale(.97); }
-#xrCoverEnter:focus-visible { outline: 3px solid #ffd21e; outline-offset: 4px; }
+/* Le uniche righe che sovrascrivono CSS di `core/`, e solo dentro la copertina:
+   `#loginPage` è pensato per stare da solo a tutta pagina, quindi porta con sé
+   un fondo pieno che coprirebbe il quadro. Il selettore è vincolato a
+   `#xrCover`, così la pagina di login normale — quella del ri-login dopo
+   "Cambia utente" — resta esattamente com'era. */
+#xrCover .xr-cover-login,
+#xrCover .xr-cover-login .login-container {
+    position: static;
+    inset: auto;
+    width: 100%;
+    min-height: 0;
+    height: auto;
+    margin: 0;
+    background: rgba(13, 17, 23, .82);
+    backdrop-filter: blur(8px);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, .6);
+    border-radius: 18px;
+}
+
+#xrCover .xr-cover-login .login-container {
+    background: none;
+    box-shadow: none;
+    padding: 22px 26px;
+}
+
+/* Sul quadro scuro il testo di core (pensato per fondo chiaro) sparirebbe. */
+#xrCover .xr-cover-login,
+#xrCover .xr-cover-login h1,
+#xrCover .xr-cover-login h2,
+#xrCover .xr-cover-login label,
+#xrCover .xr-cover-login .login-subtitle,
+#xrCover .xr-cover-login p,
+#xrCover .xr-cover-login small { color: #f2f5f9; }
+
+/* Il documento chiede tre cose: utente, password, ENTRA. Titolo, sottotitolo,
+   istruzioni e piè di pagina li dà già la copertina o non servono, e qui
+   coprirebbero il quadro senza aggiungere nulla. L'errore di login resta:
+   è l'unica cosa che l'utente deve poter leggere se sbaglia. */
+#xrCover .xr-cover-login .login-header,
+#xrCover .xr-cover-login .login-footer,
+#xrCover .xr-cover-login .login-form-section > h2,
+#xrCover .xr-cover-login .login-form-section > p { display: none; }
+
+#xrCover .xr-cover-login input {
+    /* Bersagli generosi: sul visore si punta col raggio, non col mouse. */
+    min-height: 46px;
+    font-size: 17px;
+}
+
+#xrCover .xr-cover-login .btn-login {
+    min-height: 60px;
+    font: 700 20px/1 system-ui, -apple-system, Segoe UI, sans-serif;
+    letter-spacing: .04em;
+    border-radius: 999px;
+}
 
 .xr-cover--gone {
     opacity: 0;

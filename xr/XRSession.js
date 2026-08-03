@@ -169,18 +169,24 @@
         },
 
         /**
-         * Crea la scena 3D stando in home, per poter entrare in VR da lì.
+         * Crea la scena 3D senza aspettare che si apra uno scenario.
          *
-         * `Scene3D.init()` non chiede che la pagina scenario sia visibile: legge
-         * `#canvas3d` dal DOM — che esiste sempre, anche dentro un contenitore
-         * `hidden` — e dimensiona il renderer su `window.innerWidth/innerHeight`,
-         * non sul canvas. Un canvas a dimensione zero non è comunque un problema
-         * in sessione immersiva, dove i fotogrammi vanno nel framebuffer della
+         * `core/` chiama `Scene3D.init()` solo all'apertura della pagina
+         * scenario. Qui serve prima, e per due motivi diversi: non esisterebbe
+         * la Home in VR (non c'è scena in cui metterla), e soprattutto la
+         * sessione va aperta **nell'istante** in cui l'utente preme ENTRA —
+         * `requestSession` esige una user activation fresca, e non c'è tempo per
+         * costruire un renderer in mezzo.
+         *
+         * Si fa quindi già durante la copertina, mentre l'utente digita le
+         * credenziali: quel tempo è tempo morto, ed è esattamente quanto serve.
+         *
+         * Non chiede che la pagina scenario sia visibile: `Scene3D.init()` legge
+         * `#canvas3d` dal DOM — che esiste anche dentro un contenitore `hidden` —
+         * e dimensiona il renderer su `window.innerWidth/innerHeight`, non sul
+         * canvas. Un canvas a dimensione zero non è comunque un problema in
+         * sessione immersiva, dove i fotogrammi vanno nel framebuffer della
          * sessione e non sul canvas della pagina.
-         *
-         * Si aspetta il login: `#container` resta `hidden` finché non è fatto, e
-         * inizializzare prima significherebbe tenere un contesto WebGL aperto
-         * mentre l'utente è ancora sulla schermata di accesso.
          *
          * `core/` non viene toccato: `PageManager.onScenarioPageShown` inizializza
          * solo `if (!window.Scene3D.scene)`, quindi trovandola già pronta la
@@ -192,17 +198,60 @@
             const S = window.Scene3D;
             if (!S || typeof S.init !== 'function' || S.scene) return false;
             if (this._initTried) return false;
-
-            const container = document.getElementById('container');
-            if (!container || container.classList.contains('hidden')) return false;
             if (!document.getElementById('canvas3d')) return false;
+            // Le dipendenze di `Scene3D.init()`. Senza, fallirebbe — e siccome
+            // si prova una volta sola, fallire per essere arrivati troppo presto
+            // significherebbe non avere mai la scena. Meglio ripassare.
+            if (!window.THREE || !window.AppConfig) return false;
 
             this._initTried = true;
             const ok = S.init();
             console.log(ok
-                ? '[XR] Scena creata dalla home: si può entrare in VR senza aprire uno scenario.'
-                : '[XR] Scena non creata dalla home: il pulsante VR resterà in attesa.');
+                ? '[XR] Scena pronta prima del login: si entra in VR col gesto di ENTRA.'
+                : '[XR] Scena non creata: si resterà sulla home 2D.');
             return !!ok;
+        },
+
+        /**
+         * Entra in VR subito dopo un login riuscito.
+         *
+         * È il passaggio che il flusso chiede: ENTRA → autenticazione → Home in
+         * VR, senza una pagina 2D in mezzo e senza un secondo pulsante da
+         * premere. La Home non è una pagina con dentro un collegamento alla VR:
+         * è una scena, e ci si arriva direttamente.
+         *
+         * ## Perché può non riuscire, e perché va bene
+         *
+         * `requestSession` pretende una **user activation**: il gesto che l'ha
+         * originata dev'essere recente. Qui il gesto è la pressione di ENTRA, e
+         * in mezzo `core/` fa una cosa sola — leggere `users.txt` e confrontare
+         * le credenziali — che su file locale dura millisecondi. Rientra
+         * comodamente nella finestra, ma non è garantito su ogni browser: una
+         * rete lenta sul fetch del file, e l'attivazione è scaduta.
+         *
+         * E su un desktop senza visore non riuscirà mai, per definizione.
+         *
+         * Il fallimento quindi non è un errore da segnalare: è il caso normale
+         * fuori dal visore. Si resta sulla home 2D con il pulsante 🥽, che è
+         * esattamente il comportamento di prima. Nessuna strada viene chiusa.
+         */
+        enterAfterLogin: async function () {
+            if (this.isPresenting) return true;
+
+            if (!this.supported) {
+                console.log(`[XR] Ingresso automatico non possibile (${this._probeResult ? this._probeResult.reason : 'VR non disponibile'}): resta la home 2D.`);
+                return false;
+            }
+            if (!window.Scene3D || !window.Scene3D.isInitialized) {
+                console.warn('[XR] Scena non pronta al login: resta la home 2D, si entra col pulsante.');
+                return false;
+            }
+
+            const ok = await this.enterVR();
+            console.log(ok
+                ? '[XR] Entrato in VR dal login: la Home è la hall immersiva.'
+                : '[XR] Ingresso automatico rifiutato (user activation scaduta?): resta il pulsante 🥽.');
+            return ok;
         },
 
         // =====================================================================

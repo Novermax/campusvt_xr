@@ -75,6 +75,24 @@
     const FLOOR_R = 12;
     const GRID_N = 24;
 
+    /**
+     * Le uniche due frasi scritte qui dentro.
+     *
+     * Tutto il resto della hall — nomi e descrizioni degli scenari — è già nella
+     * lingua giusta senza che ce ne occupiamo: al login `core/` ricarica
+     * `homeconfig_<lingua>.ini`, e la hall legge quello. Per queste due righe non
+     * esiste una sorgente a monte da rispecchiare, quindi stanno qui.
+     *
+     * I codici sono quelli di `users.txt` (campo 4), gli stessi del selettore in
+     * gestione utenti: it, eng, fra, deu.
+     */
+    const T = {
+        it:  { scegli: 'Scegli uno scenario', attesa: 'Caricamento scenari…' },
+        eng: { scegli: 'Choose a scenario',   attesa: 'Loading scenarios…' },
+        fra: { scegli: 'Choisissez un scénario', attesa: 'Chargement des scénarios…' },
+        deu: { scegli: 'Szenario wählen',     attesa: 'Szenarien werden geladen…' },
+    };
+
     const XRHall = {
         enabled: false,
         xr: null,
@@ -309,6 +327,19 @@
         // Elenco degli scenari
         // =====================================================================
 
+        /**
+         * Le frasi della hall nella lingua dell'utente.
+         *
+         * La lingua sta nel profilo (`users.txt`) e `core/` la mette in
+         * `currentUser.language` al login: non va chiesta di nuovo. Senza
+         * profilo — o con una lingua che non conosciamo — si resta all'italiano,
+         * che è la lingua della configurazione di default.
+         */
+        _t: function () {
+            const l = (window.currentUser && window.currentUser.language || '').toLowerCase();
+            return T[l] || T.it;
+        },
+
         /** Gli stessi scenari della home 2D, dalla stessa configurazione. */
         _scenarios: function () {
             const U = window.UI;
@@ -324,7 +355,11 @@
          */
         _buildCards: function () {
             const list = this._scenarios();
-            const sig = list.map((s) => s.name).join('|');
+            // La lingua entra nella firma: la configurazione viene ricaricata
+            // tradotta al login, e il titolo deve seguirla anche nel caso — raro
+            // ma possibile — in cui i nomi degli scenari restino identici.
+            const lang = (window.currentUser && window.currentUser.language) || '';
+            const sig = lang + '#' + list.map((s) => s.name).join('|');
             if (sig === this._sig) return;
             this._sig = sig;
 
@@ -351,7 +386,8 @@
             this.cards.forEach((m, i) => m.position.set(0, alto - i * passo, 0));
             this.title.position.set(0, alto + CARD_H / 2 + TITLE_H / 2 + CARD_GAP * 2, 0);
 
-            this._drawTitle(list.length ? 'Scegli uno scenario' : 'Caricamento scenari…');
+            const t = this._t();
+            this._drawTitle(list.length ? t.scegli : t.attesa);
             this.version++;
             console.log(`[XRHall] Card ricostruite: ${this.cards.length}.`);
         },

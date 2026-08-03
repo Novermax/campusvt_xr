@@ -90,20 +90,20 @@ const XR_SCRIPTS = [
 ];
 
 /**
- * Copertina: la prima cosa che si vede, prima ancora del login.
+ * Copertina: la prima cosa che si vede, e insieme la schermata di accesso.
  *
- * Sta sopra tutto invece di essere infilata dentro `#loginPage`: la logica di
- * accesso è di `core/` — mostra e nasconde quella pagina da sé, e ci appende
- * l'esito delle credenziali — e infilarcisi dentro significherebbe legarsi a
- * quei tempi. Un velo sopra, che si toglie e non torna, non ha nulla da
- * concordare con nessuno.
+ * Qui c'è solo il contenitore. I campi non sono duplicati: a runtime
+ * `xr/XRCover.js` **sposta dentro `#xrCoverLogin` il `#loginPage` di `core/`**,
+ * con il suo form e la sua logica. Un secondo modulo di accesso vorrebbe dire
+ * due autenticazioni che divergono, e la nostra sarebbe quella senza scadenze
+ * account né ruoli.
  *
- * `aria-hidden` sul quadro: la copertina è decorativa, il testo utile è nel
- * pulsante.
+ * `aria-hidden` sul quadro: la copertina è decorativa, il contenuto utile è il
+ * form che ci viene spostato dentro.
  */
-const COVER_HTML = `    <div id="xrCover" role="dialog" aria-label="Ingresso">
+const COVER_HTML = `    <div id="xrCover" role="dialog" aria-label="Accesso">
         <img id="xrCoverArt" src="docs/COPERTINA.png" alt="" aria-hidden="true">
-        <button id="xrCoverEnter" type="button">Entra</button>
+        <div id="xrCoverLogin"></div>
     </div>`;
 
 /**

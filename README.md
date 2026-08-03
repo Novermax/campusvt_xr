@@ -109,19 +109,51 @@ Estensione Chrome **WebXR API Emulator** → emula Quest 3 e i controller.
 
 ### Entrare in VR
 
-Il pulsante **🥽 Entra in VR** compare in basso al centro, **subito dopo il
-login**. Sul desktop appare disabilitato, con il motivo nel tooltip.
+Il flusso è **una schermata sola e poi il mondo**:
 
-Prima compariva solo dentro uno scenario, perché `Scene3D.init()` viene chiamato
-da `core/` all'apertura della pagina scenario e senza scena non c'è nulla da
-mostrare. Con la hall in-world quell'ordine non regge più: si deve poter entrare
-in VR *prima* di scegliere, o la scelta si farebbe di nuovo sul monitor. Il layer
-crea quindi la scena da sé appena il login è passato (`XRSession._initScene`).
-Non serve che la pagina scenario sia visibile: `Scene3D.init()` legge `#canvas3d`
-dal DOM — che esiste anche dentro un contenitore `hidden` — e dimensiona il
-renderer su `window.innerWidth`, non sul canvas. `core/` non è toccato:
-`PageManager.onScenarioPageShown` inizializza solo `if (!Scene3D.scene)`, e
-trovandola già pronta la lascia stare.
+```
+apertura sito → copertina con utente/password/ENTRA
+              → autenticazione (users.txt) + lingua del profilo
+              → sessione immersiva
+              → Home VR → scelta scenario → scenario
+```
+
+Non c'è una pagina "Home" 2D con dentro un pulsante per la VR: dopo ENTRA si è
+già in VR, e la Home *è* una scena. Il pulsante **🥽 Entra in VR** resta in basso
+al centro come ripiego, per il desktop e per il caso in cui l'ingresso automatico
+non riesca.
+
+**Il gesto è uno solo, e serve.** `requestSession` pretende una *user
+activation*: un tocco vero e recente, altrimenti viene rifiutata — regola dei
+browser, non scelta nostra. Il tocco qui è la pressione di ENTRA, e in mezzo
+`core/` fa una cosa sola, leggere `users.txt` e confrontare le credenziali, che
+su file locale dura millisecondi. È anche il motivo per cui il login sta *dentro*
+la copertina invece che dopo: con due schermate, il gesto che conclude il login
+sarebbe l'ultimo della pagina e da lì bisognerebbe chiederne un altro.
+
+**La scena esiste prima del login.** `core/` chiama `Scene3D.init()` solo
+all'apertura della pagina scenario; il layer lo anticipa (`XRSession._initScene`)
+mentre l'utente digita le credenziali — tempo morto, ed è esattamente quanto
+serve. Costruire un renderer *dopo* il click brucerebbe la finestra di
+attivazione. Non serve che la pagina scenario sia visibile: `Scene3D.init()` legge
+`#canvas3d` dal DOM — che esiste anche dentro un contenitore `hidden` — e
+dimensiona il renderer su `window.innerWidth`, non sul canvas. `core/` non è
+toccato: `PageManager.onScenarioPageShown` inizializza solo `if (!Scene3D.scene)`,
+e trovandola già pronta la lascia stare.
+
+**Se l'ingresso automatico non riesce non è un errore**: fuori dal visore è il
+caso normale. Si resta sulla home 2D col pulsante 🥽, cioè il comportamento di
+prima. Nessuna strada viene chiusa.
+
+### La lingua non si sceglie due volte
+
+Sta nel profilo — `users.txt`, campo 4: `utente;password;scadenza;lingua;ruolo` —
+e `core/` la mette in `currentUser.language` al login, poi ricarica
+`homeconfig_<lingua>.ini`. Nomi e descrizioni degli scenari arrivano quindi già
+tradotti anche alla hall, che legge la stessa configurazione. Le uniche due frasi
+sue («Scegli uno scenario», «Caricamento scenari…») sono tradotte in `XRHall.js`
+per `it`, `eng`, `fra`, `deu`; una lingua sconosciuta ricade sull'italiano, che è
+la lingua della configurazione di default.
 
 Entrando, il rig viene posizionato dove stava la camera desktop, proiettata a
 terra e con lo stesso orientamento orizzontale — quindi si entra esattamente
@@ -405,21 +437,32 @@ finché `XRHall.isVisible()`.
 
 Stato: `XRHall.debugInfo()`.
 
-##### La copertina, e perché un gesto in più
+##### La copertina è anche la schermata di accesso
 
-La versione WebXR si apre su un quadro a tutta pagina con un solo pulsante,
-**Entra**, e poi il login di sempre. Sembra un passaggio in più, e lo è: serve a
-comprare un gesto dell'utente. Entrare in una sessione immersiva richiede una
-*user activation* — un tocco vero, senza il quale `requestSession` viene
-rifiutata — e lo stesso vale per l'audio. Entrando dritti sul login quel gesto è
-la pressione di «Accedi», che arriva quando la sessione non è ancora pronta.
+Un quadro a tutta pagina con dentro i campi di sempre e il pulsante **ENTRA**.
+Una schermata sola per fare una cosa sola: sul visore la pagina si apre in un
+browser che galleggia in aria, spesso mentre ci si sta ancora sistemando le
+cinghie, e ogni passaggio in più è un bersaglio in più da centrare col raggio.
+Il motivo tecnico — la *user activation* da spendere subito per aprire la
+sessione — è spiegato sopra, in «Entrare in VR».
 
-L'altro motivo è pratico: la pagina si apre in un browser che galleggia in aria,
-spesso mentre ci si sta ancora sistemando le cinghie. Un solo bersaglio grande si
-centra molto più facilmente di un modulo con due campi di testo.
+**Il form è quello di `core/`, spostato.** `xr/XRCover.js` prende `#loginPage` e
+lo sposta dentro la copertina, con i suoi campi, il suo submit e la sua logica:
+`core/` legge `users.txt`, verifica le credenziali, ricava la lingua e ricarica la
+configurazione tradotta. Un secondo modulo di accesso vorrebbe dire due
+autenticazioni che divergono al primo cambiamento a monte, e la nostra sarebbe
+quella senza scadenze account né ruoli. Si sposta un nodo nel DOM e si cambia
+l'etichetta di un pulsante, tutto da JavaScript.
 
-È un velo sopra la pagina (`xr/XRCover.js`), non un pezzo del login: la logica di
-accesso è di `core/`, e infilarcisi dentro significherebbe legarsi ai suoi tempi.
+Il velo si toglie quando `core/` scopre `#container`, cioè a credenziali
+accettate — osservare quello invece di agganciarsi al submit evita di indovinare
+l'esito: il login può fallire, e in quel caso si deve restare lì a leggere il
+messaggio d'errore.
+
+Le uniche righe di `xr.css` che sovrascrivono CSS di `core/` stanno qui, e sono
+vincolate a `#xrCover`: `#loginPage` è pensato per stare da solo a tutta pagina e
+porta con sé un fondo pieno che coprirebbe il quadro. La pagina di login normale
+— quella del ri-login dopo «Cambia utente» — resta esattamente com'era.
 
 #### L'interfaccia del tutorial, dentro il mondo
 

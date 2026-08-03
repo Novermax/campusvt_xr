@@ -169,6 +169,39 @@ check('come il pavimento della hall, che non e un modello caricato',
 H.activate(H.cards[1]);
 check('e si puo entrare in un altro scenario', caricati.length === 2, caricati.join(','));
 
+// ── 4b. La lingua dell'utente, non una scelta in piu' ──────────────────
+// Nomi e descrizioni arrivano gia' tradotti (core ricarica homeconfig_<lang>),
+// ma le due frasi della hall sono nostre e devono seguirli.
+pagina = 'home';
+window.currentUser = { name: 'tester', language: 'eng' };
+config = {
+    scenarios: [{ name: 'Electrospindle Maintenance', id: 'elettromandrino', description: 'Spindle check and maintenance.' }],
+};
+drawn.length = 0;
+H.update();
+check('col profilo in inglese la hall parla inglese',
+    testo().includes('Choose a scenario'), testo().slice(0, 60));
+check('e mostra i nomi tradotti che arrivano da core',
+    testo().includes('Electrospindle Maintenance'));
+
+window.currentUser = { name: 'tester', language: 'deu' };
+config = { scenarios: [{ name: 'Wartung Elektrospindel', id: 'elettromandrino', description: 'Wartung.' }] };
+drawn.length = 0;
+H.update();
+check('e in tedesco parla tedesco', testo().includes('Szenario wählen'), testo().slice(0, 60));
+
+// Lingua sconosciuta o profilo assente: si resta all'italiano, che e' la
+// lingua della configurazione di default. Non si mostra una stringa vuota.
+window.currentUser = { name: 'tester', language: 'xx' };
+config = { scenarios: scenari };
+drawn.length = 0;
+H.update();
+check('con una lingua che non conosciamo resta l italiano',
+    testo().includes('Scegli uno scenario'), testo().slice(0, 60));
+
+window.currentUser = null;
+config = { scenarios: scenari };
+
 // ── 5. Fuori dalla home la hall non esiste, nemmeno come bersaglio ─────
 pagina = 'scenario';
 H.update();
