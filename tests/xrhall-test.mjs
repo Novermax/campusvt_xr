@@ -29,8 +29,19 @@ const fakeCanvas = () => ({
     }),
 });
 
+/**
+ * La pagina, che e' cio' che la hall guarda davvero.
+ *
+ * `paginaDom` normalmente segue `pagina`; forzandolo si simula il caso vero
+ * del sito pubblicato, dove `UI.currentPage` resta indietro (vedi prova 9).
+ */
+let paginaDom = null;
+const scenarioPageEl = {
+    classList: { contains: (c) => c === 'hidden' && (paginaDom || pagina) !== 'scenario' },
+};
+
 globalThis.document = {
-    getElementById: () => null,
+    getElementById: (id) => (id === 'scenarioPage' ? scenarioPageEl : null),
     createElement: (tag) => (tag === 'canvas' ? fakeCanvas() : {}),
 };
 
@@ -310,6 +321,36 @@ H.update();
 check('senza nessuna UI utile non costruisce card fantasma', H.cards.length === 0);
 check('e premere non fa danni',
     H.activate({ userData: { xrUiAction: 'hall:0', scenario: scenari[0] } }) === false);
+
+// ── 8b. La hall guarda la PAGINA, non UI.currentPage ──────────────────
+//
+// Sul sito pubblicato `UI.currentPage` resta 'home' per sempre: il monolite
+// lo aggiorna solo dentro showPage, e solo se UI.elements.scenarioPage
+// esiste — cosa che non accade mai, perche' UI.init() non viene chiamato.
+// Fidandosi di quel campo, l'elenco degli scenari restava sospeso in mezzo
+// alla macchina e il tutorial sembrava non partire (XRUI si fa da parte
+// finche' la hall e' in scena). Riscontrato sul Quest il 2026-08-03.
+
+H.dispose();
+pagina = 'home';
+paginaDom = null;
+config = { scenarios: scenari };
+window.UI = UI_MONOLITE;
+const rig4 = new THREE.Object3D();
+scene.add(rig4);
+H.init({ isPresenting: true, rig: rig4 });
+H.update();
+check('in home la hall si vede', H.isVisible());
+
+paginaDom = 'scenario';        // la pagina cambia...
+H.update();
+check('aperto lo scenario la hall si toglie, anche se UI.currentPage resta indietro',
+    !H.isVisible(), `currentPage=${window.UI.currentPage}`);
+
+paginaDom = null;              // ...e tornando indietro ricompare
+H.update();
+check('e tornando alla scelta ricompare', H.isVisible());
+H.dispose();
 
 // ── 8. Chiusura: niente resta appeso alla scena ────────────────────────
 H.dispose();

@@ -448,14 +448,35 @@
         // =====================================================================
 
         /**
-         * La hall si vede quando non si sta facendo uno scenario, e lo si chiede
-         * al DOM come tutto il resto del layer: `UI.currentPage` è la stessa cosa
-         * che decide quale pagina è visibile sul desktop.
+         * La hall si vede quando non si sta facendo uno scenario.
+         *
+         * Lo dice la **pagina**, non `UI.currentPage`.
+         *
+         * Quel campo sembra la risposta giusta — è lo stesso che sul desktop
+         * distingue home e scenario — ma il monolite lo aggiorna in un solo
+         * punto, `showPage` (core/js/ui.js:231), e dietro la condizione
+         * `this.elements.scenarioPage`. In questa build `UI.elements` è vuoto
+         * (`UI.init()` non viene mai chiamato: la home la costruisce altro
+         * codice), quindi quella riga non viene raggiunta e **`currentPage`
+         * resta 'home' per sempre**, anche a scenario aperto.
+         *
+         * Il risultato era doppio e sembrava un guasto solo: l'elenco degli
+         * scenari restava sospeso in mezzo alla macchina, e il tutorial pareva
+         * non partire — in realtà partiva, ma `XRUI` si fa da parte finché la
+         * hall è in scena, quindi non si vedevano né fumetto né strumenti.
+         *
+         * `#scenarioPage` invece cambia davvero, ed è ciò che l'utente vede:
+         * `hidden` in home, senza classe dentro uno scenario. Verificato sul
+         * sito pubblicato.
          */
         _shouldShow: function () {
+            const page = document.getElementById('scenarioPage');
+            if (page) return page.classList.contains('hidden');
+
+            // Senza quel nodo si ripiega sul campo di `core/`: è il DOM di
+            // un'altra versione, e lì potrebbe essere l'unico segnale.
             const U = window.UI;
-            if (!U) return false;
-            return U.currentPage !== 'scenario';
+            return U ? U.currentPage !== 'scenario' : false;
         },
 
         update: function () {
