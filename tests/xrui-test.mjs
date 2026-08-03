@@ -367,10 +367,17 @@ stepIndex = 3;
 UIX.update();
 check('il ritorno alla hall e premibile durante lo step',
     UIX.targets().some((b) => b.userData.xrUiAction === 'hall'));
-check('sta sotto la colonna degli strumenti, non accanto a OK',
-    UIX.btnHall.parent === UIX.toolBar
-    && UIX.btnHall.position.y < Math.min(...UIX.tools.map((t) => t.position.y)),
-    UIX.btnHall.position.y.toFixed(2));
+// Sta accanto al fumetto, non fra gli strumenti: la pulsantiera e' dove la
+// mano cade a ogni passo, e un'uscita li' in mezzo si prende per sbaglio,
+// buttando via il tutorial a meta'. Riscontrato dall'utente sul Quest.
+check('sta accanto al fumetto, non nella pulsantiera degli strumenti',
+    UIX.btnHall.parent === UIX.bubble && UIX.btnHall.parent !== UIX.toolBar);
+check('a destra del pannello, fuori dal testo',
+    UIX.btnHall.position.x > 0.50 / 2, UIX.btnHall.position.x.toFixed(3));
+check('e in alto, allineato al bordo superiore',
+    UIX.btnHall.position.y > 0, UIX.btnHall.position.y.toFixed(3));
+check('quindi lontano dagli strumenti, che stanno in basso a destra',
+    UIX.toolBar.position.y < UIX.bubble.position.y);
 
 // Premerlo passa dal pulsante Home di core: e' lui a sapere cosa azzerare.
 const home = mkEl('homeButton', '🏠');

@@ -229,8 +229,13 @@
              * chiede l'opposto: la navigazione fra Home e scenari deve restare
              * dentro la VR.
              *
-             * Sta in fondo alla pulsantiera, non accanto a OK: è un'uscita, e
-             * le uscite non vanno messe dove cade il pollice mentre si lavora.
+             * Sta **accanto al fumetto**, in alto a sinistra, e non in fondo
+             * alla pulsantiera degli strumenti: là si premeva per sbaglio.
+             * La pulsantiera è dove cade la mano di continuo — è il posto in cui
+             * si sceglie l'utensile a ogni passo — e un'uscita in mezzo ai
+             * comandi che si usano di più è un'uscita che prima o poi si prende
+             * senza volerlo, buttando via il tutorial a metà. Vicino al fumetto
+             * invece si va apposta: lì si legge, non si lavora.
              */
             this.btnHall = this._makeButton(this._hallLabel(), 'hall');
             this.buttons = [this.btnOk, this.btnHall];
@@ -238,6 +243,15 @@
             const y = -PANEL_H / 2 - BTN_H / 2 - BTN_GAP;
             this.btnOk.position.set(0, y, 0);
             this.bubble.add(this.btnOk);
+
+            // A destra del pannello e allineato al suo bordo alto: fuori dal
+            // testo, che resta leggibile per intero, e lontano dagli strumenti.
+            this.btnHall.position.set(
+                PANEL_W / 2 + BTN_GAP + BTN_W / 2,
+                PANEL_H / 2 - BTN_H / 2,
+                0
+            );
+            this.bubble.add(this.btnHall);
 
             // Media del modale: sopra il fumetto, quindi si sposta con lui.
             this.media = this._makeMediaQuad();
@@ -253,10 +267,8 @@
             this.root.add(this.toolBar);
             this.tools = [];
             this._toolsSig = '';
-            this.toolBar.add(this.btnHall);
             this._placeToolBar();
             this._buildTools();
-            this._placeHallButton();
 
             this._state = null;
             this._placed = false;
@@ -599,7 +611,6 @@
             });
 
             if (this.tools.length) console.log(`[XRUI] Strumenti in-world: ${sig}`);
-            this._placeHallButton();
             this.version++;
         },
 
@@ -607,19 +618,6 @@
         _hallLabel: function () {
             const l = (window.currentUser && window.currentUser.language || '').toLowerCase();
             return T_HALL[l] || T_HALL.it;
-        },
-
-        /**
-         * Il pulsante della hall va sotto l'ultimo strumento, e si risistema
-         * ogni volta che la colonna cambia: gli scenari non hanno tutti gli
-         * stessi strumenti, quindi la sua altezza non è una costante.
-         */
-        _placeHallButton: function () {
-            if (!this.btnHall) return;
-            const n = this.tools.length;
-            const total = n ? n * TOOL_SIZE + (n - 1) * TOOL_GAP : 0;
-            const sotto = n ? -total / 2 - TOOL_GAP * 2 - BTN_H / 2 : 0;
-            this.btnHall.position.set(0, sotto, 0);
         },
 
         /** Applica posizione e inclinazione della pulsantiera. */
