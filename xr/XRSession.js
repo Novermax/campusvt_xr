@@ -737,6 +737,20 @@
          * che faceva sulla camera, che in sessione immersiva viene comunque
          * sovrascritta dalla posa del visore a ogni frame.
          *
+         * ## Si sposta il rig, ma a doversi trovare al posto giusto è la testa
+         *
+         * Mettere il rig su `CameraPos` non basta: la testa **non sta
+         * nell'origine del rig**. Sta dove sei fisicamente in stanza rispetto
+         * all'origine del reference space, e quello scostamento — un passo di
+         * lato mentre ti sistemavi le cinghie — si somma, diventando lo stesso
+         * scostamento dentro la scena. È il difetto riscontrato sul Quest il
+         * 2026-08-03: si compariva accanto alla console invece che davanti.
+         *
+         * Si compensa quindi la posa della testa dentro il rig, in posizione e
+         * in imbardata, così che sia **lei** a trovarsi su `CameraPos` e girata
+         * verso `CameraTarget`. Lo scostamento va scalato (il rig porta la scala
+         * del mondo) e ruotato come il rig, perché è espresso nel suo spazio.
+         *
          * @param {{cameraPos?:string, cameraTarget?:string, name?:string}} scenario
          * @returns {boolean} true se il rig è stato spostato.
          */
@@ -750,21 +764,58 @@
                 return false;
             }
 
-            this.rig.position.x = pos.x;
-            this.rig.position.z = pos.z;
-            // La y resta quella calibrata: porta l'altezza occhi dell'operatore.
-
             // Girato verso ciò che lo scenario vuole far guardare. Senza target
             // si punta all'origine, che è dove stanno le macchine.
             const target = this._vec3(scenario.cameraTarget) || new THREE.Vector3(0, 0, 0);
             const dx = target.x - pos.x;
             const dz = target.z - pos.z;
-            if (Math.hypot(dx, dz) > 1e-6) this.rig.rotation.y = Math.atan2(dx, dz) + Math.PI;
+
+            const head = this._headPose();
+            const headYaw = head ? head.yaw : 0;
+
+            // Imbardata voluta per lo SGUARDO; al rig ne tocca quel che resta
+            // una volta tolta quella che la testa ha già per conto suo.
+            if (Math.hypot(dx, dz) > 1e-6) {
+                this.rig.rotation.y = Math.atan2(dx, dz) + Math.PI - headYaw;
+            }
+
+            // Lo scostamento della testa nel rig, portato in coordinate mondo:
+            // scalato come il mondo, ruotato come il rig.
+            const off = new THREE.Vector3(head ? head.x : 0, 0, head ? head.z : 0)
+                .multiplyScalar(this.rig.scale.x || 1)
+                .applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rig.rotation.y);
+
+            this.rig.position.x = pos.x - off.x;
+            this.rig.position.z = pos.z - off.z;
+            // La y resta quella calibrata: porta l'altezza occhi dell'operatore.
 
             this.rig.updateMatrixWorld(true);
             console.log(`[XR] Osservatore portato al punto di vista di "${scenario.name}": `
-                + `(${pos.x.toFixed(2)}, ${pos.z.toFixed(2)}).`);
+                + `(${pos.x.toFixed(2)}, ${pos.z.toFixed(2)})`
+                + (head ? ` — scostamento della testa compensato (${off.x.toFixed(2)}, ${off.z.toFixed(2)}).` : '.'));
             return true;
+        },
+
+        /**
+         * Posa orizzontale della testa **dentro il rig**: dove sei in stanza.
+         *
+         * Three ricopia la posa del visore sulla camera dell'applicazione a ogni
+         * frame (`WebXRManager.updateCamera`), quindi `camera.position` e
+         * `camera.quaternion` sono già le coordinate locali cercate — a patto
+         * che la camera sia davvero figlia del rig e che un frame sia passato.
+         *
+         * @returns {{x:number, z:number, yaw:number}|null} null se la posa non è
+         * ancora leggibile: chi chiama ripiega sul non compensare, che è il
+         * comportamento di prima e non peggiora nulla.
+         */
+        _headPose: function () {
+            const S = window.Scene3D;
+            const THREE = window.THREE;
+            if (!S || !S.camera || !this.rig) return null;
+            if (S.camera.parent !== this.rig) return null;
+
+            const e = new THREE.Euler().setFromQuaternion(S.camera.quaternion, 'YXZ');
+            return { x: S.camera.position.x, z: S.camera.position.z, yaw: e.y };
         },
 
         /** "(x, y, z)" → Vector3. Il formato è quello di `homeconfig.ini`. */
