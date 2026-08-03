@@ -81,6 +81,13 @@
     const TOOL_GAP = 0.016;
 
     /**
+     * L'etichetta del ritorno alla hall, nelle lingue di `users.txt`.
+     * Stesse quattro di `XRHall`: la lingua è quella del profilo, decisa al
+     * login e mai più richiesta.
+     */
+    const T_HALL = { it: 'Scenari', eng: 'Scenarios', fra: 'Scénarios', deu: 'Szenarien' };
+
+    /**
      * Posa della pulsantiera degli strumenti.
      *
      * Non è un cartello da leggere, è una tastiera da premere: il riferimento
@@ -187,7 +194,21 @@
             // Niente Avanti/Indietro: in VR si avanza facendo lo step, come
             // sul desktop. Resta solo OK, che sblocca i modali informativi.
             this.btnOk = this._makeButton('OK', 'ok');
-            this.buttons = [this.btnOk];
+
+            /*
+             * Il ritorno alla hall.
+             *
+             * Senza, uno scenario è un vicolo cieco fino all'ultimo step: per
+             * cambiare macchina — o solo per uscire da quella sbagliata —
+             * bisognava finire il tutorial o togliersi il visore. Il documento
+             * chiede l'opposto: la navigazione fra Home e scenari deve restare
+             * dentro la VR.
+             *
+             * Sta in fondo alla pulsantiera, non accanto a OK: è un'uscita, e
+             * le uscite non vanno messe dove cade il pollice mentre si lavora.
+             */
+            this.btnHall = this._makeButton(this._hallLabel(), 'hall');
+            this.buttons = [this.btnOk, this.btnHall];
 
             const y = -PANEL_H / 2 - BTN_H / 2 - BTN_GAP;
             this.btnOk.position.set(0, y, 0);
@@ -207,8 +228,10 @@
             this.root.add(this.toolBar);
             this.tools = [];
             this._toolsSig = '';
+            this.toolBar.add(this.btnHall);
             this._placeToolBar();
             this._buildTools();
+            this._placeHallButton();
 
             this._state = null;
             this._placed = false;
@@ -541,7 +564,27 @@
             });
 
             if (this.tools.length) console.log(`[XRUI] Strumenti in-world: ${sig}`);
+            this._placeHallButton();
             this.version++;
+        },
+
+        /** L'etichetta del ritorno, nella lingua del profilo. */
+        _hallLabel: function () {
+            const l = (window.currentUser && window.currentUser.language || '').toLowerCase();
+            return T_HALL[l] || T_HALL.it;
+        },
+
+        /**
+         * Il pulsante della hall va sotto l'ultimo strumento, e si risistema
+         * ogni volta che la colonna cambia: gli scenari non hanno tutti gli
+         * stessi strumenti, quindi la sua altezza non è una costante.
+         */
+        _placeHallButton: function () {
+            if (!this.btnHall) return;
+            const n = this.tools.length;
+            const total = n ? n * TOOL_SIZE + (n - 1) * TOOL_GAP : 0;
+            const sotto = n ? -total / 2 - TOOL_GAP * 2 - BTN_H / 2 : 0;
+            this.btnHall.position.set(0, sotto, 0);
         },
 
         /** Applica posizione e inclinazione della pulsantiera. */
@@ -851,10 +894,17 @@
             // cose che il resto del sistema vieta.
             const toolsOn = st.mode === 'step';
 
+            // Il ritorno alla hall c'è sempre, tranne mentre un modale aspetta
+            // risposta: lì `core/` è fermo su quella promise, e sfilarsi di
+            // lato la lascerebbe appesa. Chiuso l'avviso, l'uscita ritorna.
+            const hallOn = !modal;
+
             const changed = this.btnOk.visible !== modal
+                || this.btnHall.visible !== hallOn
                 || this._toolsOn !== toolsOn;
 
             this.btnOk.visible = modal;
+            this.btnHall.visible = hallOn;
             this._toolsOn = toolsOn;
             this.tools.forEach((t) => { t.visible = toolsOn; });
 
@@ -955,6 +1005,21 @@
             }
 
             this._flash(mesh);
+
+            if (action === 'hall') {
+                // Stessa strada del mouse: il pulsante Home di `core/`, che è
+                // l'unico a sapere che cosa va azzerato prima di tornare
+                // indietro (tool, step, holdable, modelli). `goHome` diretto
+                // solo se quel pulsante non c'è.
+                const home = document.getElementById('homeButton');
+                const U = window.UI;
+                if (home) home.click();
+                else if (U && typeof U.goHome === 'function') U.goHome();
+                else return false;
+
+                console.log('[XRUI] Ritorno alla hall richiesto dallo scenario.');
+                return true;
+            }
 
             if (action === 'ok') {
                 // Quale modale sia aperto lo dice lo stato appena letto; il

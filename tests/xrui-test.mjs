@@ -140,7 +140,7 @@ UIX.update();
 check('mostra il contatore del passo', testo().includes('Passo 3 di 21'), testo().slice(0, 40));
 check('mostra il titolo dello step', testo().includes('Titolo dello step 3'));
 check('mostra la descrizione letta dal DOM', testo().includes('Premi il pulsante MDI'));
-check('durante lo step non offre pulsanti di navigazione', visibili() === '', visibili());
+check('durante lo step l unico pulsante e il ritorno alla hall', visibili() === 'hall', visibili());
 check('e mentre si lavora il fumetto sta a sinistra', UIX.bubble.position.x < -0.4,
     UIX.bubble.position.x.toFixed(2));
 check('e in alto, staccato dagli strumenti', UIX.bubble.position.y > 0.3,
@@ -154,13 +154,13 @@ check('gli strumenti restano in basso, staccati dal fumetto',
 stepIndex = 0;
 els.stepCurrentNumber.textContent = '1';
 UIX.update();
-check('nemmeno al primo passo compaiono pulsanti', visibili() === '', visibili());
+check('nemmeno al primo passo compaiono frecce', visibili() === 'hall', visibili());
 
 // ── 3. In VR si avanza facendo lo step, non premendo una freccia ───────
 // Il pannello non deve avere alcuna strada per navigare da solo: saltare
 // uno step in VR significa portarsi via l'azione che lo step chiedeva.
-check('il pannello non espone azioni di navigazione',
-    UIX.buttons.every((b) => b.userData.xrUiAction === 'ok'),
+check('il pannello non espone azioni di navigazione fra gli step',
+    UIX.buttons.every((b) => ['ok', 'hall'].includes(b.userData.xrUiAction)),
     UIX.buttons.map((b) => b.userData.xrUiAction).join(','));
 check('e non ha mai chiamato UI.nextStep/prevStep', nav.join(',') === '', nav.join(','));
 
@@ -183,7 +183,7 @@ check('senza navigare per conto proprio', nav.join(',') === '', nav.join(','));
 
 els.infoModal.classList.remove('show');
 UIX.update();
-check('chiuso il modale non resta nulla da premere', visibili() === '', visibili());
+check('chiuso il modale torna il solo ritorno alla hall', visibili() === 'hall', visibili());
 
 // ── 4b. Fine tutorial: era il secondo blocco invisibile ────────────────
 // `core/` costruisce al volo #congratulationsModal e congela la scena con
@@ -224,7 +224,9 @@ stepIndex = -1;
 drawn.length = 0;
 UIX.update();
 check('senza tutorial lo dice invece di restare vuoto', testo().includes('non avviato'), testo().slice(0, 40));
-check('e non offre pulsanti', UIX.targets().length === 0, visibili() + strumenti());
+check('e non offre strumenti', strumenti() === '', strumenti());
+check('ma la via d uscita resta: e proprio quando serve di piu',
+    visibili() === 'hall', visibili());
 
 // ── 6. Posizionamento: davanti alla testa, piu' in basso ───────────────
 stepIndex = 3;
@@ -354,6 +356,43 @@ animVisible = false;
 animState = null;
 UIX.update();
 check('chiusa, il riquadro sparisce', !UIX.anim.visible);
+
+// ── 13. Il ritorno alla hall ──────────────────────────────────────────
+//
+// Senza, uno scenario e' un vicolo cieco: si esce solo finendo il tutorial
+// o togliendosi il visore. Il documento chiede l'opposto — la navigazione
+// fra Home e scenari deve restare dentro la VR.
+
+stepIndex = 3;
+UIX.update();
+check('il ritorno alla hall e premibile durante lo step',
+    UIX.targets().some((b) => b.userData.xrUiAction === 'hall'));
+check('sta sotto la colonna degli strumenti, non accanto a OK',
+    UIX.btnHall.parent === UIX.toolBar
+    && UIX.btnHall.position.y < Math.min(...UIX.tools.map((t) => t.position.y)),
+    UIX.btnHall.position.y.toFixed(2));
+
+// Premerlo passa dal pulsante Home di core: e' lui a sapere cosa azzerare.
+const home = mkEl('homeButton', '🏠');
+UIX.activate(UIX.btnHall);
+check('premerlo preme il pulsante Home di core', home.clicks === 1);
+check('e non tocca i modali', els.infoModalOkBtn.clicks === 1);
+
+// Con un modale aperto sparisce: core e' fermo su quella promise, e
+// sfilarsi di lato la lascerebbe appesa.
+els.infoModal.classList.add('show');
+UIX.update();
+check('ma con un modale aperto si fa da parte', visibili() === 'ok', visibili());
+els.infoModal.classList.remove('show');
+UIX.update();
+check('e chiuso l avviso torna disponibile', visibili() === 'hall', visibili());
+
+// L'etichetta segue la lingua del profilo, decisa al login.
+check('l etichetta e nella lingua dell utente',
+    UIX.btnHall.userData.label === 'Scenari', UIX.btnHall.userData.label);
+window.currentUser = { name: 'Pluto', language: 'eng' };
+check('e in inglese per un profilo inglese', UIX._hallLabel() === 'Scenarios', UIX._hallLabel());
+window.currentUser = null;
 
 console.log(fails ? `\n${fails} PROVE FALLITE` : '\nTutte le prove passate');
 process.exit(fails ? 1 : 0);

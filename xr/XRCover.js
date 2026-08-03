@@ -200,6 +200,47 @@
                 const entrato = await XS.enterAfterLogin();
                 if (!entrato && await this._vrExists(XS)) this._offerVR();
             });
+
+            this._addChangeUser(slot);
+        },
+
+        /**
+         * «Non sei tu?»: la via per rientrare con un altro profilo.
+         *
+         * Serve perché la lingua **è** il profilo: per vedere l'applicazione in
+         * inglese si entra come un utente inglese, non c'è un selettore. Finché
+         * la sessione resta valida in `localStorage` non ricompaiono nemmeno i
+         * campi, quindi senza questo non esisterebbe alcun modo di cambiare
+         * utente — e nemmeno lingua.
+         *
+         * Il pulsante «Cambia utente» di `core/` non basta: `updateUserBar`
+         * (core/index.html:890) lo mostra solo contando gli scenari su
+         * `UI.scenarioManager.scenariosConfig.scenarios`, che nel monolite —
+         * cioè la `UI` che comanda a runtime — non esiste. Il conto fa zero e
+         * il pulsante resta `display:none` per sempre. È la stessa forma
+         * sbagliata che teneva vuota la hall; qui però il rimedio non può stare
+         * in `core/`, che è di sola lettura.
+         *
+         * Si riusa comunque `logoutUser` quando c'è: è lui a sapere che serve
+         * un reload pieno, perché lo stato globale dell'applicazione non si
+         * reinizializza in modo affidabile.
+         */
+        _addChangeUser: function (slot) {
+            const nome = (window.currentUser && window.currentUser.name) || '';
+            const a = document.createElement('button');
+            a.id = 'xrCoverSwitch';
+            a.type = 'button';
+            a.className = 'xr-cover-switch';
+            a.textContent = nome ? `Non sei ${nome}? Cambia utente` : 'Cambia utente';
+            slot.appendChild(a);
+
+            a.addEventListener('click', () => {
+                a.disabled = true;
+                if (typeof window.logoutUser === 'function') return window.logoutUser();
+                try { localStorage.removeItem('currentUser'); } catch (e) { /* storage negato */ }
+                window.currentUser = null;
+                window.location.reload();
+            });
         },
 
         /**

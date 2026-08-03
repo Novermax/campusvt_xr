@@ -119,6 +119,24 @@
 #xrCover .xr-cover-enter:hover { background: #4593ff; }
 #xrCover .xr-cover-enter:disabled { opacity: .6; cursor: wait; }
 
+/* Secondaria per davvero: si cambia utente di rado, e premerla per sbaglio
+   costa un login. Bersaglio comunque generoso — sul visore si punta col raggio. */
+#xrCover .xr-cover-switch {
+    display: block;
+    width: 100%;
+    margin-top: 14px;
+    min-height: 44px;
+    padding: 10px;
+    font: 500 15px/1.3 system-ui, -apple-system, Segoe UI, sans-serif;
+    background: none;
+    border: 1px solid rgba(242, 245, 249, .35);
+    border-radius: 999px;
+    color: #cdd7e4;
+    cursor: pointer;
+}
+#xrCover .xr-cover-switch:hover { border-color: rgba(242, 245, 249, .7); color: #f2f5f9; }
+#xrCover .xr-cover-switch:disabled { opacity: .5; cursor: wait; }
+
 .xr-cover--gone {
     opacity: 0;
     pointer-events: none;
