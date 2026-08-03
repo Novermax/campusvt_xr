@@ -352,6 +352,34 @@ H.update();
 check('e tornando alla scelta ricompare', H.isVisible());
 H.dispose();
 
+// ── 8c. Mai la parola «undefined» davanti agli occhi ──────────────────
+//
+// `fillText(undefined)` non solleva niente: scrive «undefined» a caratteri
+// cubitali in mezzo al mondo, ed e' quello che l'utente si e' trovato al
+// posto del nome di uno scenario (Quest, 2026-08-03). Da dentro il visore
+// non si capisce nemmeno quale dato manchi: la console non c'e'.
+
+H.dispose();
+pagina = 'home';
+paginaDom = null;
+config = { scenarios: [{ name: undefined, description: undefined, id: 'rotto' }] };
+window.UI = UI_MONOLITE;
+const rig5 = new THREE.Object3D();
+scene.add(rig5);
+H.init({ isPresenting: true, rig: rig5 });
+drawn.length = 0;
+H.update();
+check('con uno scenario senza nome non scrive "undefined"',
+    !drawn.some((t) => /undefined/i.test(t)), drawn.join(' | ').slice(0, 60));
+
+// E nemmeno il titolone, se per qualunque ragione arriva vuoto.
+drawn.length = 0;
+H._drawTitle(undefined);
+check('e nemmeno il titolo se arriva vuoto',
+    !drawn.some((t) => /undefined/i.test(t)), drawn.join(' | ').slice(0, 40));
+H.dispose();
+config = { scenarios: scenari };
+
 // ── 8. Chiusura: niente resta appeso alla scena ────────────────────────
 H.dispose();
 check('chiudendo la sessione la hall si stacca dalla scena',

@@ -102,6 +102,25 @@
     /** Dopo quanto un'attesa smette di essere un'attesa e diventa un guasto. */
     const ATTESA_MAX_MS = 12000;
 
+    /**
+     * Testo da disegnare, mai la parola «undefined».
+     *
+     * `fillText(undefined)` non solleva niente: scrive «undefined» a caratteri
+     * cubitali in mezzo al mondo. È successo — l'etichetta di una card, sul
+     * Quest, il 2026-08-03 — e da dentro il visore non si capisce nemmeno quale
+     * dato manchi, perché la console non c'è. Meglio non scrivere nulla e
+     * lasciare una riga nel log che dica chi era: il pannello «📋 Log XR» la
+     * riporta fuori dalla sessione.
+     */
+    function testoSicuro(v, dove) {
+        if (typeof v === 'string') return v;
+        if (v === null || v === undefined) {
+            console.warn(`[XRHall] Testo mancante (${dove}): non disegno nulla.`);
+            return '';
+        }
+        return String(v);
+    }
+
     const XRHall = {
         enabled: false,
         xr: null,
@@ -295,7 +314,7 @@
             g.font = '700 58px system-ui, -apple-system, Segoe UI, sans-serif';
             g.textAlign = 'center';
             g.textBaseline = 'middle';
-            g.fillText(nome, c.width / 2, c.height / 2 + 2);
+            g.fillText(testoSicuro(nome, 'titolo della hall'), c.width / 2, c.height / 2 + 2);
 
             this.title.userData.tex.needsUpdate = true;
         },
@@ -303,7 +322,13 @@
         _drawCard: function (mesh, pressed) {
             const c = mesh.userData.canvas;
             const g = c.getContext('2d');
-            const sc = mesh.userData.scenario;
+            // Una card senza scenario non deve far cadere il frame: se manca,
+            // resta una card vuota e il log dice quale. `_wrap` non scrive mai
+            // «undefined» — passa da `String(text || '')` — ma il dato mancante
+            // va comunque saputo, o si continua a vedere una card muta senza
+            // capire perché.
+            const sc = mesh.userData.scenario || {};
+            if (!sc.name) console.warn(`[XRHall] Card senza nome (${mesh.name}): lo scenario è ${JSON.stringify(mesh.userData.scenario)}.`);
             g.clearRect(0, 0, c.width, c.height);
 
             this._roundRect(g, 6, 6, c.width - 12, c.height - 12, 24);

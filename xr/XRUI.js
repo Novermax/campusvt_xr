@@ -656,7 +656,15 @@
             g.font = '600 54px system-ui, -apple-system, Segoe UI, sans-serif';
             g.textAlign = 'center';
             g.textBaseline = 'middle';
-            g.fillText(mesh.userData.label, c.width / 2, c.height / 2 + 2);
+            // Mai `fillText(undefined)`: non fallisce, scrive «undefined» a
+            // caratteri cubitali sul pulsante. Meglio un pulsante muto e una
+            // riga nel log, che il pannello «📋 Log XR» riporta fuori dalla
+            // sessione — dentro il visore la console non si può aprire.
+            const etichetta = mesh.userData.label;
+            if (typeof etichetta !== 'string') {
+                console.warn(`[XRUI] Pulsante senza etichetta (${mesh.userData.xrUiAction}): resta muto.`);
+            }
+            g.fillText(typeof etichetta === 'string' ? etichetta : '', c.width / 2, c.height / 2 + 2);
 
             mesh.userData.tex.needsUpdate = true;
         },

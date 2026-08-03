@@ -394,5 +394,14 @@ window.currentUser = { name: 'Pluto', language: 'eng' };
 check('e in inglese per un profilo inglese', UIX._hallLabel() === 'Scenarios', UIX._hallLabel());
 window.currentUser = null;
 
+// ── 14. Mai la parola «undefined» sui pulsanti ────────────────────────
+// `fillText(undefined)` non fallisce: la scrive, a caratteri cubitali.
+drawn.length = 0;
+UIX.btnHall.userData.label = undefined;
+UIX._drawButton(UIX.btnHall, false);
+check('un pulsante senza etichetta resta muto, non dice "undefined"',
+    !drawn.some((t) => /undefined/i.test(t)), drawn.join(' | ').slice(0, 40));
+UIX.btnHall.userData.label = 'Scenari';
+
 console.log(fails ? `\n${fails} PROVE FALLITE` : '\nTutte le prove passate');
 process.exit(fails ? 1 : 0);
