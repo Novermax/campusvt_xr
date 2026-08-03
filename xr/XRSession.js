@@ -778,29 +778,89 @@
             const dz = target.z - pos.z;
 
             const head = this._headPose();
-            const headYaw = head ? head.yaw : 0;
 
             // Imbardata voluta per lo SGUARDO; al rig ne tocca quel che resta
-            // una volta tolta quella che la testa ha già per conto suo.
+            // una volta tolta quella che la testa ha già per conto suo. Va
+            // fissata PRIMA di spostare: lo scostamento da compensare ruota
+            // insieme al rig.
             if (Math.hypot(dx, dz) > 1e-6) {
-                this.rig.rotation.y = Math.atan2(dx, dz) + Math.PI - headYaw;
+                this.rig.rotation.y = Math.atan2(dx, dz) + Math.PI - (head ? head.yaw : 0);
             }
 
-            // Lo scostamento della testa nel rig, portato in coordinate mondo:
-            // scalato come il mondo, ruotato come il rig.
-            const off = new THREE.Vector3(head ? head.x : 0, 0, head ? head.z : 0)
-                .multiplyScalar(this.rig.scale.x || 1)
-                .applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rig.rotation.y);
-
-            this.rig.position.x = pos.x - off.x;
-            this.rig.position.z = pos.z - off.z;
             // La y resta quella calibrata: porta l'altezza occhi dell'operatore.
+            const compensato = this.moveHeadTo(pos.x, pos.z);
 
-            this.rig.updateMatrixWorld(true);
             console.log(`[XR] Osservatore portato al punto di vista di "${scenario.name}": `
                 + `(${pos.x.toFixed(2)}, ${pos.z.toFixed(2)})`
-                + (head ? ` — scostamento della testa compensato (${off.x.toFixed(2)}, ${off.z.toFixed(2)}).` : '.'));
+                + (compensato ? ' — scostamento della testa compensato.' : '.'));
             return true;
+        },
+
+        // =====================================================================
+        // Muovere l'osservatore — sempre ragionando sulla testa
+        // =====================================================================
+
+        /*
+         * Una regola sola, per ogni spostamento.
+         *
+         * Il rig è il pavimento sotto i piedi dell'utente, ma l'utente non ci
+         * sta in mezzo: sta dove si trova **fisicamente in stanza** rispetto
+         * all'origine del reference space. Chi scrive `rig.position = punto`
+         * manda lì l'origine del rig, e la persona finisce spostata di quello
+         * stesso scarto — un passo di lato fatto mentre ci si sistemava le
+         * cinghie diventa un passo di lato dentro la scena.
+         *
+         * Vale per tutti e tre i modi di muoversi, ed erano sbagliati tutti e
+         * tre: ingresso in uno scenario, teleport (si atterrava di fianco al
+         * marcatore) e rotazione a scatti (si veniva sbalzati di lato, perché
+         * il rig girava attorno a sé e non attorno alla testa).
+         *
+         * Da qui in poi si sposta e si ruota **la testa**, e il rig la segue.
+         */
+
+        /** Scostamento testa→rig in coordinate mondo: scalato come il mondo,
+         *  ruotato come il rig. Zero se la posa non è ancora nota. */
+        _headOffsetWorld: function () {
+            const THREE = window.THREE;
+            const head = this._headPose();
+            return new THREE.Vector3(head ? head.x : 0, 0, head ? head.z : 0)
+                .multiplyScalar((this.rig && this.rig.scale.x) || 1)
+                .applyAxisAngle(new THREE.Vector3(0, 1, 0), this.rig ? this.rig.rotation.y : 0);
+        },
+
+        /** Dove si trova adesso la testa, in pianta e in coordinate mondo. */
+        headWorldXZ: function () {
+            if (!this.rig) return null;
+            const off = this._headOffsetWorld();
+            return { x: this.rig.position.x + off.x, z: this.rig.position.z + off.z };
+        },
+
+        /**
+         * Sposta il rig perché sia la TESTA a cadere su (x, z).
+         * La y non si tocca: porta la calibrazione dell'altezza occhi.
+         * @returns {boolean} true se c'era una posa da compensare.
+         */
+        moveHeadTo: function (x, z) {
+            if (!this.rig) return false;
+            const head = this._headPose();
+            const off = this._headOffsetWorld();
+            this.rig.position.x = x - off.x;
+            this.rig.position.z = z - off.z;
+            this.rig.updateMatrixWorld(true);
+            return !!head;
+        },
+
+        /**
+         * Gira l'osservatore attorno alla **propria testa**, non attorno
+         * all'origine del rig: girarsi non è spostarsi, e ritrovarsi altrove
+         * dopo uno scatto è disorientante quanto sbagliato.
+         * @param {number} rad angolo in radianti.
+         */
+        rotateHeadBy: function (rad) {
+            if (!this.rig) return false;
+            const prima = this.headWorldXZ();
+            this.rig.rotation.y += rad;
+            return this.moveHeadTo(prima.x, prima.z);
         },
 
         /**

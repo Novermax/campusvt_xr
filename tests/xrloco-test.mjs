@@ -27,19 +27,40 @@ button.userData.xrUiAction = 'ok';
 button.position.set(0, 1.42, -0.6);
 scene.add(button);
 
+// La testa: sta nel rig, e da dove sta dipende dove si atterra.
+const testa = new THREE.PerspectiveCamera();
+testa.position.set(0, 1.6, 0);
+rig.add(testa);
+
 const premuti = [];
 globalThis.window = {
     THREE,
-    Scene3D: { scene },
+    Scene3D: { scene, camera: testa },
     XRUI: {
         targets: () => [button],
         activate: (m) => { premuti.push(m.userData.xrUiAction); return true; },
     },
+    addEventListener() {},
+    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
 };
+globalThis.document = {
+    getElementById: () => null,
+    addEventListener() {},
+    readyState: 'complete',
+};
+
+// L'XRSession vero, non uno stub: e' lui a sapere che a spostarsi e' la testa,
+// e le prove qui sotto servono proprio a verificare quello.
+new Function(readFileSync(`${ROOT}xr/XRSession.js`, 'utf8'))();
+const XS = window.XRSession;
+XS.rig = rig;
+XS.isPresenting = true;
+XS._calibrated = true;              // l'altezza non c'entra: qui si guarda la pianta
+XS._sampleHead();
 
 new Function(readFileSync(`${ROOT}xr/XRLocomotion.js`, 'utf8'))();
 const L = window.XRLocomotion;
-L.init({ rig, isPresenting: true }, { sources });
+L.init(XS, { sources });
 
 let fails = 0;
 const check = (label, cond, extra = '') => {
@@ -109,6 +130,59 @@ punta(mano, new THREE.Vector3(0, 1.42, -0.6));
 check('senza pannello puntare avanti non fa nulla di speciale',
     raggio().material.color.getHex() === 0x9fb4c7,
     '#' + raggio().material.color.getHex().toString(16));
+
+// ── 5. Chi non sta al centro della propria stanza ─────────────────────
+//
+// Il rig e' il pavimento sotto i piedi, ma l'utente non ci sta in mezzo:
+// sta dove si trova FISICAMENTE rispetto all'origine del reference space.
+// Spostando il rig sul punto mirato, ci finiva l'origine — e la persona
+// restava scostata di altrettanto. Il marcatore era nel punto giusto e si
+// atterrava di fianco (riscontrato sul Quest il 2026-08-03).
+
+testa.position.set(0.9, 1.6, -0.6);          // un passo a destra e uno avanti
+rig.position.set(0, 0, 0);
+rig.rotation.y = 0;
+scene.updateMatrixWorld(true);
+XS._sampleHead();
+
+const testaInMondo = () => {
+    rig.updateMatrixWorld(true);
+    return testa.getWorldPosition(new THREE.Vector3());
+};
+
+const meta = new THREE.Vector3(1.5, 0, -3);
+L.teleportTo(meta);
+let h = testaInMondo();
+check('teleport: ci arriva la TESTA, non l origine del rig',
+    Math.abs(h.x - meta.x) < 1e-6 && Math.abs(h.z - meta.z) < 1e-6,
+    `(${h.x.toFixed(2)}, ${h.z.toFixed(2)})`);
+check('e infatti il rig e scostato apposta',
+    Math.hypot(rig.position.x - meta.x, rig.position.z - meta.z) > 0.5,
+    `rig (${rig.position.x.toFixed(2)}, ${rig.position.z.toFixed(2)})`);
+
+// Con la scala del mondo lo scostamento cambia di grandezza: va scalato.
+rig.scale.setScalar(0.769);
+L.teleportTo(meta);
+h = testaInMondo();
+check('vale anche col mondo ingrandito', Math.abs(h.x - meta.x) < 1e-6 && Math.abs(h.z - meta.z) < 1e-6,
+    `(${h.x.toFixed(2)}, ${h.z.toFixed(2)})`);
+rig.scale.setScalar(1);
+L.teleportTo(meta);
+
+// La rotazione a scatti: girarsi non e' spostarsi. Il rig girava attorno a
+// se stesso, portando in giro su un arco chi non era al suo centro.
+const prima = testaInMondo();
+XS.session = { inputSources: [{ handedness: 'right', gamepad: { axes: [0, 0, 0, 0] } }] };
+L._pollSnapTurn();                                    // arma lo scatto
+XS.session.inputSources[0].gamepad.axes[2] = 1;
+L._pollSnapTurn();                                    // scatto a destra
+const dopo = testaInMondo();
+
+check('rotazione: la testa gira, ma resta dov era',
+    Math.abs(dopo.x - prima.x) < 1e-6 && Math.abs(dopo.z - prima.z) < 1e-6,
+    `(${prima.x.toFixed(2)}, ${prima.z.toFixed(2)}) -> (${dopo.x.toFixed(2)}, ${dopo.z.toFixed(2)})`);
+check('e lo scatto e di 30 gradi', Math.abs(Math.abs(rig.rotation.y) - Math.PI / 6) < 1e-6,
+    (rig.rotation.y * 180 / Math.PI).toFixed(0) + '°');
 
 console.log(fails ? `\n${fails} PROVE FALLITE` : '\nTutte le prove passate');
 process.exit(fails ? 1 : 0);

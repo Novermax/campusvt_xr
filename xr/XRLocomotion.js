@@ -282,16 +282,19 @@
         },
 
         /**
-         * Sposta il rig sul punto indicato. Si cambia solo X e Z: la Y porta la
-         * calibrazione dell'altezza occhi e non va toccata.
+         * Porta l'osservatore sul punto indicato.
+         *
+         * Ci va la **testa**, non l'origine del rig: si atterra dove si è
+         * mirato, cioè sul marcatore. Spostando il rig si arrivava spostati di
+         * quanto si è fisicamente lontani dal centro della propria stanza —
+         * per questo il teleport "sbagliava mira" pur avendo il marcatore nel
+         * punto giusto. La y non si tocca: porta la calibrazione dell'altezza.
+         *
          * @param {THREE.Vector3} point
          */
         teleportTo: function (point) {
-            const rig = this.xr.rig;
-            if (!rig) return;
-            rig.position.x = point.x;
-            rig.position.z = point.z;
-            rig.updateMatrixWorld(true);
+            if (!this.xr.rig) return;
+            this.xr.moveHeadTo(point.x, point.z);
             this._pulseAll();
             console.log(`[XRLocomotion] Teleport a (${point.x.toFixed(2)}, ${point.z.toFixed(2)})`);
         },
@@ -321,9 +324,10 @@
             if (!this._snapArmed) return;            // uno scatto per spinta
             this._snapArmed = false;
 
-            const rig = this.xr.rig;
-            rig.rotation.y -= Math.sign(axis) * SNAP_TURN_DEG * Math.PI / 180;
-            rig.updateMatrixWorld(true);
+            // Attorno alla testa, non attorno all'origine del rig: chi non sta
+            // esattamente al centro della propria stanza, altrimenti, non gira
+            // — viene portato in giro su un arco.
+            this.xr.rotateHeadBy(-Math.sign(axis) * SNAP_TURN_DEG * Math.PI / 180);
         },
 
         // =====================================================================
