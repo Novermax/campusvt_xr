@@ -35,9 +35,19 @@
     'use strict';
 
     /** Card: larghezza e altezza in metri, misurate a un metro di distanza. */
-    const CARD_W = 0.36;
-    const CARD_H = 0.11;
-    const CARD_GAP = 0.018;
+    const CARD_W = 0.34;
+    const CARD_H = 0.105;
+    const CARD_GAP = 0.016;
+
+    /**
+     * Quante card per colonna prima di affiancarne un'altra.
+     *
+     * Gli scenari veri sono dieci, non due: in colonna unica sarebbero 1,28 m di
+     * pannelli: la prima sopra la testa, l'ultima sotto le ginocchia, e quasi
+     * nessuna a distanza di dito. Cinque per colonna stanno dentro l'arco che il
+     * braccio raggiunge senza spostarsi.
+     */
+    const MAX_RIGHE = 5;
 
     /** Titolo della hall, sopra la colonna. */
     const TITLE_W = 0.46;
@@ -59,10 +69,6 @@
     const REF_DIST = 1.00;
     const DROP = 0.19;
     const FOLLOW = 0.06;
-
-    /** La colonna sta a sinistra, girata verso l'operatore. */
-    const SIDE_X = 0.26;
-    const SIDE_YAW = 22;
 
     const COL_BG = 'rgba(22, 26, 33, 0.94)';
     const COL_EDGE = 'rgba(255, 210, 30, 0.55)';
@@ -87,11 +93,14 @@
      * gestione utenti: it, eng, fra, deu.
      */
     const T = {
-        it:  { scegli: 'Scegli uno scenario', attesa: 'Caricamento scenari…' },
-        eng: { scegli: 'Choose a scenario',   attesa: 'Loading scenarios…' },
-        fra: { scegli: 'Choisissez un scénario', attesa: 'Chargement des scénarios…' },
-        deu: { scegli: 'Szenario wählen',     attesa: 'Szenarien werden geladen…' },
+        it:  { scegli: 'Scegli uno scenario', attesa: 'Caricamento scenari…', vuoto: 'Nessuno scenario disponibile' },
+        eng: { scegli: 'Choose a scenario',   attesa: 'Loading scenarios…',  vuoto: 'No scenarios available' },
+        fra: { scegli: 'Choisissez un scénario', attesa: 'Chargement des scénarios…', vuoto: 'Aucun scénario disponible' },
+        deu: { scegli: 'Szenario wählen',     attesa: 'Szenarien werden geladen…', vuoto: 'Keine Szenarien verfügbar' },
     };
+
+    /** Dopo quanto un'attesa smette di essere un'attesa e diventa un guasto. */
+    const ATTESA_MAX_MS = 12000;
 
     const XRHall = {
         enabled: false,
@@ -340,12 +349,48 @@
             return T[l] || T.it;
         },
 
-        /** Gli stessi scenari della home 2D, dalla stessa configurazione. */
+        /**
+         * Gli stessi scenari della home 2D, dalla stessa configurazione.
+         *
+         * ## Di `UI` ne esistono due, e a runtime vince quella vecchia
+         *
+         * `core/js/ui/ui-coordinator.js` definisce una `UI` modulare con
+         * `scenarioManager`, `tutorialManager`, ecc. Subito dopo viene caricata
+         * `core/js/ui.js`, il monolite, che si fa da parte **solo se** trova la
+         * modulare già avviata — la riconosce da `_tutorialManager`, che però a
+         * quel punto è ancora `null` perché `UI.init()` non è stato chiamato.
+         * Il risultato è che in pratica comanda sempre il monolite, dove:
+         *
+         *  - `scenariosConfig` è **direttamente un array**, non `{scenarios:[…]}`;
+         *  - `loadScenario` sta su `UI`, non su `UI.scenarioManager`.
+         *
+         * Leggere solo la forma modulare — com'era qui — significava non trovare
+         * mai nulla: la hall restava su «Caricamento scenari…» per sempre, e le
+         * card non erano nemmeno costruite. Si accettano quindi entrambe le
+         * forme, senza decidere quale sia "quella giusta": è una condizione di
+         * `core/`, e a noi tocca sopravviverci.
+         */
         _scenarios: function () {
             const U = window.UI;
-            const SM = U && U.scenarioManager;
-            const cfg = SM && SM.scenariosConfig;
-            return (cfg && Array.isArray(cfg.scenarios)) ? cfg.scenarios : [];
+            if (!U) return [];
+
+            const SM = U.scenarioManager;
+            const raw = (SM && SM.scenariosConfig) || U.scenariosConfig;
+            if (!raw) return [];
+
+            if (Array.isArray(raw)) return raw;                       // ui.js (monolite)
+            if (Array.isArray(raw.scenarios)) return raw.scenarios;   // ui-coordinator
+            return [];
+        },
+
+        /** Chi sa caricare uno scenario, nell'una o nell'altra `UI`. */
+        _loader: function () {
+            const U = window.UI;
+            if (!U) return null;
+            const SM = U.scenarioManager;
+            if (SM && typeof SM.loadScenario === 'function') return SM.loadScenario.bind(SM);
+            if (typeof U.loadScenario === 'function') return U.loadScenario.bind(U);
+            return null;
         },
 
         /**
@@ -361,6 +406,7 @@
             const lang = (window.currentUser && window.currentUser.language) || '';
             const sig = lang + '#' + list.map((s) => s.name).join('|');
             if (sig === this._sig) return;
+            this._avvisato = false;
             this._sig = sig;
 
             for (const c of this.cards) {
@@ -379,15 +425,20 @@
                 this.cards.push(mesh);
             });
 
-            // Colonna centrata in verticale: con una sola card resta all'altezza
-            // dello sguardo, con quattro non parte da sopra la testa.
-            const passo = CARD_H + CARD_GAP;
-            const alto = (this.cards.length - 1) * passo / 2;
-            this.cards.forEach((m, i) => m.position.set(0, alto - i * passo, 0));
-            this.title.position.set(0, alto + CARD_H / 2 + TITLE_H / 2 + CARD_GAP * 2, 0);
+            this._layout();
 
             const t = this._t();
-            this._drawTitle(list.length ? t.scegli : t.attesa);
+            if (list.length) {
+                this._vuotoDa = 0;
+                this._drawTitle(t.scegli);
+            } else {
+                // Un'attesa che non finisce va detta. Dentro il visore non c'è
+                // console: se la configurazione non arriva, «Caricamento…» per
+                // sempre è indistinguibile da un blocco, e non si saprebbe
+                // nemmeno se valga la pena aspettare.
+                this._vuotoDa = this._vuotoDa || Date.now();
+                this._drawTitle(t.attesa);
+            }
             this.version++;
             console.log(`[XRHall] Card ricostruite: ${this.cards.length}.`);
         },
@@ -415,7 +466,51 @@
             if (!show) return;
 
             this._buildCards();
+            this._checkAttesa();
             this._place();
+        },
+
+        /**
+         * Dispone le card in griglia, riempiendo per colonne.
+         *
+         * Per colonne e non per righe: leggendo si scorre una colonna dall'alto
+         * in basso, come un elenco, e la seconda comincia solo quando la prima è
+         * finita. Riempiendo per righe, due voci consecutive finirebbero
+         * affiancate e l'ordine si perderebbe.
+         *
+         * Tutto centrato davanti: nella hall non c'è una macchina da guardare
+         * dietro i pannelli, quindi il centro del campo visivo non va lasciato
+         * libero — è esattamente dove serve che stiano.
+         */
+        _layout: function () {
+            const n = this.cards.length;
+            const passoY = CARD_H + CARD_GAP;
+            const passoX = CARD_W + CARD_GAP;
+
+            const colonne = Math.max(1, Math.ceil(n / MAX_RIGHE));
+            const righe = Math.max(1, Math.ceil(n / colonne));
+
+            const x0 = -(colonne - 1) * passoX / 2;
+            const y0 = (righe - 1) * passoY / 2;
+
+            this.cards.forEach((m, i) => {
+                const c = Math.floor(i / righe);
+                const r = i % righe;
+                m.position.set(x0 + c * passoX, y0 - r * passoY, 0);
+            });
+
+            this.title.position.set(0, y0 + CARD_H / 2 + TITLE_H / 2 + CARD_GAP * 2, 0);
+        },
+
+        /** L'attesa che si trascina diventa un messaggio, non un silenzio. */
+        _checkAttesa: function () {
+            if (!this._vuotoDa || this._avvisato) return;
+            if (Date.now() - this._vuotoDa < ATTESA_MAX_MS) return;
+            this._avvisato = true;
+            this._drawTitle(this._t().vuoto);
+            console.warn('[XRHall] Nessuno scenario dopo '
+                + (ATTESA_MAX_MS / 1000) + 's. UI.scenariosConfig: '
+                + JSON.stringify(window.UI ? (window.UI.scenariosConfig === undefined ? 'assente' : (window.UI.scenariosConfig === null ? 'null' : 'presente')) : 'UI assente'));
         },
 
         setVisible: function (on) {
@@ -466,13 +561,6 @@
                 head.z - this.root.position.z
             ), 0, 'YXZ'));
             this.root.quaternion.slerp(this._q, FOLLOW * 3);
-
-            // Colonna spostata di lato e girata verso l'operatore: un rettangolo
-            // di testo visto di taglio è testo che non si legge.
-            this.column.position.x = -SIDE_X;
-            this.column.rotation.y = SIDE_YAW * Math.PI / 180;
-            this.title.position.x = -SIDE_X;
-            this.title.rotation.y = this.column.rotation.y;
         },
 
         // =====================================================================
@@ -507,15 +595,15 @@
             if (!action || action.indexOf('hall:') !== 0) return false;
 
             const sc = mesh.userData.scenario;
-            const SM = window.UI && window.UI.scenarioManager;
-            if (!sc || !SM || typeof SM.loadScenario !== 'function') {
-                console.warn('[XRHall] ScenarioManager non disponibile: impossibile entrare.');
+            const load = this._loader();
+            if (!sc || !load) {
+                console.warn('[XRHall] Nessuna UI sa caricare uno scenario: impossibile entrare.');
                 return false;
             }
 
             this._flash(mesh);
             console.log(`[XRHall] Entro nello scenario "${sc.name}".`);
-            SM.loadScenario(sc);
+            load(sc);
 
             // Non si aspetta il caricamento per nascondere la hall: `update` la
             // toglie da sé appena `currentPage` diventa 'scenario'. Aspettare

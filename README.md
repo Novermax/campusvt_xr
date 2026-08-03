@@ -411,11 +411,44 @@ in chiaro — «Esci dalla VR e scegli un tutorial dalla pagina, poi rientra.»
 mostra gli stessi scenari della home 2D come pannelli premibili col dito, si
 entra in uno scenario, e a tutorial finito si torna qui.
 
-**Rispecchiare, non reimplementare**, come per il pannello: l'elenco si legge da
-`UI.scenarioManager.scenariosConfig` — la stessa cosa che ha popolato le card
-della home — e premere una card chiama `scenarioManager.loadScenario()`, la stessa
-funzione del click del mouse. Caricamento modelli, camera, luci e scelta del
-tutorial localizzato restano di `core/`.
+**Rispecchiare, non reimplementare**, come per il pannello: l'elenco si legge
+dalla stessa configurazione che ha popolato le card della home, e premere una
+card chiama la stessa `loadScenario()` del click del mouse. Caricamento modelli,
+camera, luci e scelta del tutorial localizzato restano di `core/`.
+
+##### Di `UI` ce ne sono due, e comanda quella vecchia
+
+`core/js/ui/ui-coordinator.js` definisce una `UI` modulare con `scenarioManager`,
+`tutorialManager` e compagnia. Subito dopo viene caricato `core/js/ui.js`, il
+monolite, che si fa da parte **solo se** trova la modulare già avviata — e la
+riconosce da `_tutorialManager`, che a quel punto è ancora `null` perché
+`UI.init()` non è stato chiamato. In pratica comanda sempre il monolite, dove:
+
+- `scenariosConfig` è **direttamente un array**, non `{scenarios: […]}`;
+- `loadScenario` sta su `UI`, non su `UI.scenarioManager`.
+
+Leggere solo la forma modulare — com'era nella prima versione della hall —
+significava non trovare mai nulla: la hall restava su «Caricamento scenari…» per
+sempre e nessuna card veniva costruita, mentre sul desktop la home 2D mostrava
+regolarmente i dieci scenari. `XRHall` accetta quindi entrambe le forme, e le
+prove le esercitano tutte e due: provarne una sola è precisamente l'errore che
+aveva lasciato passare il guasto.
+
+Un'attesa che non finisce, poi, viene detta: dopo 12 secondi senza scenari il
+pannello smette di dire «Caricamento» e dichiara che non ce ne sono. Dentro il
+visore non c'è console, e un'attesa infinita è indistinguibile da un blocco.
+
+##### Dieci scenari, non due
+
+`homeconfig.ini` ne dichiara dieci. In colonna unica sarebbero 1,28 m di
+pannelli: il primo sopra la testa, l'ultimo sotto le ginocchia, quasi nessuno a
+distanza di dito. Si dispongono quindi in griglia, cinque per colonna, riempita
+**per colonne** — si scorre una colonna dall'alto in basso come un elenco, mentre
+riempiendo per righe due voci consecutive finirebbero affiancate e l'ordine si
+perderebbe. Con i dieci veri: due colonne, 48 × 36 cm, a 61 cm dalla testa.
+
+Sta al centro e non di lato come il fumetto del tutorial: lì il centro serve alla
+macchina, qui dietro i pannelli non c'è nulla da guardare.
 
 ##### Perché cambiare scenario non spegne la sessione
 

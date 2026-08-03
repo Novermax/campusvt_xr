@@ -61,6 +61,40 @@ let config = null;               // arriva dalla rete DOPO il boot
 const caricati = [];
 const modelli = [];              // finti loadedModels
 
+const entra = (sc) => {
+    caricati.push(sc.name);
+    pagina = 'scenario';
+    const finto = new THREE.Object3D();
+    modelli.push(finto);
+    scene.add(finto);
+};
+
+/**
+ * Di `UI` ne esistono DUE, e vanno provate entrambe.
+ *
+ * `ui-coordinator.js` espone `UI.scenarioManager.scenariosConfig = {scenarios:[…]}`;
+ * `ui.js` — il monolite, che a runtime è quello che comanda davvero — espone
+ * `UI.scenariosConfig` come **array nudo** e `UI.loadScenario` direttamente.
+ * Provare solo la prima forma è esattamente l'errore che teneva la hall su
+ * «Caricamento scenari…» per sempre sul sito vero: nessun test se ne accorgeva.
+ */
+const UI_MODULARE = {
+    get currentPage() { return pagina; },
+    get scenarioManager() {
+        return {
+            get scenariosConfig() { return config; },
+            loadScenario: entra,
+        };
+    },
+};
+
+const UI_MONOLITE = {
+    get currentPage() { return pagina; },
+    // Array nudo, non {scenarios: […]}.
+    get scenariosConfig() { return config ? config.scenarios : null; },
+    loadScenario: entra,
+};
+
 globalThis.window = {
     THREE,
     Scene3D: {
@@ -73,21 +107,7 @@ globalThis.window = {
             modelli.length = 0;
         },
     },
-    UI: {
-        get currentPage() { return pagina; },
-        get scenarioManager() {
-            return {
-                get scenariosConfig() { return config; },
-                loadScenario(sc) {
-                    caricati.push(sc.name);
-                    pagina = 'scenario';
-                    const finto = new THREE.Object3D();
-                    modelli.push(finto);
-                    scene.add(finto);
-                },
-            };
-        },
-    },
+    UI: UI_MODULARE,
 };
 globalThis.setTimeout = (fn) => 0;   // il lampo della card non ci interessa
 
@@ -123,13 +143,10 @@ check('e con la spiegazione, o si sceglie a caso',
 check('le card sono premibili', bersagli() === 'hall:0,hall:1', bersagli());
 check('e c e un pavimento sotto i piedi', !!H.floor && H.floor.parent === scene);
 
-// La colonna sta a sinistra e girata verso l'operatore: un rettangolo di
-// testo visto di taglio e' testo che non si legge.
-check('la colonna sta a sinistra', H.column.position.x < -0.2, H.column.position.x.toFixed(2));
-check('e girata verso chi guarda', H.column.rotation.y > 0.2,
-    (H.column.rotation.y * 180 / Math.PI).toFixed(0) + '°');
 check('a portata di braccio, o non si preme', H.root.position.distanceTo(camera.position) < 0.7,
     H.root.position.distanceTo(camera.position).toFixed(2) + ' m');
+check('con pochi scenari resta una colonna sola',
+    new Set(H.cards.map((c) => c.position.x.toFixed(3))).size === 1);
 
 // Le card non si ricostruiscono a ogni frame: sarebbe una texture rifatta
 // 72 volte al secondo per niente.
@@ -216,7 +233,73 @@ check('non rivendica le azioni del pannello del tutorial',
 check('ne quelle degli strumenti',
     H.activate({ userData: { xrUiAction: 'tool:spray' } }) === false);
 
-// ── 7. Chiusura: niente resta appeso alla scena ────────────────────────
+// ── 6b. Dieci scenari, che e' il numero vero ───────────────────────────
+// `homeconfig.ini` ne dichiara dieci, non due. In colonna unica sarebbero
+// 1,28 m di pannelli: la prima sopra la testa, l'ultima sotto le ginocchia.
+pagina = 'home';
+config = { scenarios: Array.from({ length: 10 }, (_, i) => ({
+    name: `Scenario ${i + 1}`, id: `s${i}`, description: 'Descrizione.',
+})) };
+H.update();
+check('con dieci scenari costruisce dieci card', H.cards.length === 10, String(H.cards.length));
+
+const colonneX = [...new Set(H.cards.map((c) => c.position.x.toFixed(3)))];
+const righeY = [...new Set(H.cards.map((c) => c.position.y.toFixed(3)))];
+check('e le affianca invece di impilarle tutte', colonneX.length === 2, colonneX.length + ' colonne');
+check('cinque per colonna', righeY.length === 5, righeY.length + ' righe');
+
+// Riempite per colonne: due voci consecutive non devono finire affiancate,
+// o l'ordine dell'elenco si perde.
+check('riempite per colonne, come si legge un elenco',
+    H.cards[0].position.x === H.cards[1].position.x
+    && H.cards[0].position.y > H.cards[1].position.y);
+
+// Tutto deve restare raggiungibile: e' il motivo per cui si affiancano.
+const altezza = Math.max(...H.cards.map((c) => c.position.y)) - Math.min(...H.cards.map((c) => c.position.y));
+check('e la griglia resta alta quanto un braccio arriva', altezza < 0.7, altezza.toFixed(2) + ' m');
+check('col titolo sopra a tutte',
+    H.title.position.y > Math.max(...H.cards.map((c) => c.position.y)));
+
+// ── 7. L'ALTRA UI: il monolite, che a runtime e' quello che comanda ────
+// `ui.js` si fa da parte solo se trova la UI modulare gia' AVVIATA, e la
+// riconosce da `_tutorialManager` — che a quel punto e' ancora null. In
+// pratica vince sempre lui, con `scenariosConfig` come array nudo e
+// `loadScenario` su UI. Leggendo solo la forma modulare, la hall sul sito
+// vero restava su «Caricamento scenari…» e nessuna card veniva costruita.
+H.dispose();
+
+pagina = 'home';
+caricati.length = 0;
+window.UI = UI_MONOLITE;
+config = { scenarios: scenari };
+window.currentUser = null;
+
+const rig2 = new THREE.Object3D();
+scene.add(rig2);
+H.init({ isPresenting: true, rig: rig2 });
+drawn.length = 0;
+H.update();
+check('legge gli scenari anche dal monolite (array nudo)',
+    H.cards.length === 2, String(H.cards.length));
+check('e non resta bloccata su "Caricamento"',
+    testo().includes('Scegli uno scenario'), testo().slice(0, 40));
+H.activate(H.cards[0]);
+check('e li carica con UI.loadScenario, che li sta su UI',
+    caricati.join(',') === 'Manutenzione Elettromandrino', caricati.join(','));
+
+// Nessuna delle due: non si inventa nulla e non esplode.
+H.dispose();
+pagina = 'home';
+window.UI = { get currentPage() { return pagina; } };
+const rig3 = new THREE.Object3D();
+scene.add(rig3);
+H.init({ isPresenting: true, rig: rig3 });
+H.update();
+check('senza nessuna UI utile non costruisce card fantasma', H.cards.length === 0);
+check('e premere non fa danni',
+    H.activate({ userData: { xrUiAction: 'hall:0', scenario: scenari[0] } }) === false);
+
+// ── 8. Chiusura: niente resta appeso alla scena ────────────────────────
 H.dispose();
 check('chiudendo la sessione la hall si stacca dalla scena',
     !H.floor && !scene.children.some((c) => c.name === 'XRHallFloor'));
