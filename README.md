@@ -28,7 +28,7 @@ invece che mouse+camera) e ridispatcha nella stessa API basata su mesh:
 window.InteractiveObject3D.handleClick(mesh, opts);
 window.Scene3D.handleModelAction(rootModel, opts);
 window.StepController.triggerStep('physical', triggerId);
-window.UI.nextStep();
+window.ToolsManager.toggleTool(id);
 ```
 
 Il codice di `core/` usa path relativi alla root (`./js/…`, `css/…`, `scenes/…`),
@@ -49,7 +49,9 @@ campusvt_xr/
 ├── xr/                        layer WebXR — l'unico codice applicativo di questo repo
 │   ├── XRSession.js           sonda capability, sessione immersiva, XRRig, loop
 │   ├── XRInput.js             pressione a contatto col dito
-│   ├── XRUI.js                fumetto e pulsanti del tutorial, in-world
+│   ├── XRUI.js                fumetto e pulsante del tutorial, in-world
+│   ├── XRHall.js              la home come luogo: scelta scenari in-world
+│   ├── XRCover.js             copertina d'ingresso (il gesto per la user activation)
 │   ├── XRLocomotion.js        teleport e rotazione a scatti
 │   ├── XRButton.js            pulsante entra/esci VR, scala, altezza
 │   └── xr.css
@@ -107,9 +109,19 @@ Estensione Chrome **WebXR API Emulator** → emula Quest 3 e i controller.
 
 ### Entrare in VR
 
-Il pulsante **🥽 Entra in VR** compare in basso al centro, ma solo dentro uno
-scenario: prima non esiste ancora una scena 3D da mostrare. Sul desktop appare
-disabilitato, con il motivo nel tooltip.
+Il pulsante **🥽 Entra in VR** compare in basso al centro, **subito dopo il
+login**. Sul desktop appare disabilitato, con il motivo nel tooltip.
+
+Prima compariva solo dentro uno scenario, perché `Scene3D.init()` viene chiamato
+da `core/` all'apertura della pagina scenario e senza scena non c'è nulla da
+mostrare. Con la hall in-world quell'ordine non regge più: si deve poter entrare
+in VR *prima* di scegliere, o la scelta si farebbe di nuovo sul monitor. Il layer
+crea quindi la scena da sé appena il login è passato (`XRSession._initScene`).
+Non serve che la pagina scenario sia visibile: `Scene3D.init()` legge `#canvas3d`
+dal DOM — che esiste anche dentro un contenitore `hidden` — e dimensiona il
+renderer su `window.innerWidth`, non sul canvas. `core/` non è toccato:
+`PageManager.onScenarioPageShown` inizializza solo `if (!Scene3D.scene)`, e
+trovandola già pronta la lascia stare.
 
 Entrando, il rig viene posizionato dove stava la camera desktop, proiettata a
 terra e con lo stesso orientamento orizzontale — quindi si entra esattamente
@@ -356,6 +368,59 @@ frazione trascurabile, il collo di bottiglia non è nell'interazione: è nel
 rendering della scena o fuori dalla pagina. `XRSession.frameReport()` dà gli
 stessi numeri dalla console.
 
+#### La hall: la home come luogo, non come pagina
+
+Finché la scelta dello scenario è rimasta sul monitor, la VR è stata una modalità
+di visualizzazione: si sceglieva col mouse, si indossava il visore, e a tutorial
+finito lo si toglieva per scegliere di nuovo. Il pannello del tutorial lo diceva
+in chiaro — «Esci dalla VR e scegli un tutorial dalla pagina, poi rientra.»
+
+`xr/XRHall.js` chiude il giro. Si entra una volta e si resta dentro: la hall
+mostra gli stessi scenari della home 2D come pannelli premibili col dito, si
+entra in uno scenario, e a tutorial finito si torna qui.
+
+**Rispecchiare, non reimplementare**, come per il pannello: l'elenco si legge da
+`UI.scenarioManager.scenariosConfig` — la stessa cosa che ha popolato le card
+della home — e premere una card chiama `scenarioManager.loadScenario()`, la stessa
+funzione del click del mouse. Caricamento modelli, camera, luci e scelta del
+tutorial localizzato restano di `core/`.
+
+##### Perché cambiare scenario non spegne la sessione
+
+Era il rischio vero, e la risposta sta in `Scene3D.clearAllModels`: rimuove *solo*
+gli oggetti in `loadedModels`. Né `scene` né `renderer` vengono ricreati — nascono
+una volta sola in `Scene3D.init()` — e la sessione WebXR vive appesa a
+`renderer.xr`. L'`XRRig` è figlio di `scene` e non sta fra i modelli caricati,
+quindi sopravvive alla pulizia. Vale anche per il ritorno: `UICore.goHome()` fa
+`clearAllModels` e `showPage('home')`, e rimette `interactionsBlocked` a false.
+
+Il pavimento della hall è **procedurale** — un disco e una griglia generati a
+runtime — e non `pavimento.glb`: la hall è la prima cosa che si vede entrando e
+deve esserci subito, senza aspettare il Worker. Senza nulla sotto i piedi si
+galleggia nel vuoto, che è il modo più rapido di stare male in VR.
+
+Nella hall il pannello del tutorial si fa da parte: parlerebbe di uno step non
+ancora scelto, nello stesso posto in cui sta l'elenco. `XRUI` lo nasconde da sé
+finché `XRHall.isVisible()`.
+
+Stato: `XRHall.debugInfo()`.
+
+##### La copertina, e perché un gesto in più
+
+La versione WebXR si apre su un quadro a tutta pagina con un solo pulsante,
+**Entra**, e poi il login di sempre. Sembra un passaggio in più, e lo è: serve a
+comprare un gesto dell'utente. Entrare in una sessione immersiva richiede una
+*user activation* — un tocco vero, senza il quale `requestSession` viene
+rifiutata — e lo stesso vale per l'audio. Entrando dritti sul login quel gesto è
+la pressione di «Accedi», che arriva quando la sessione non è ancora pronta.
+
+L'altro motivo è pratico: la pagina si apre in un browser che galleggia in aria,
+spesso mentre ci si sta ancora sistemando le cinghie. Un solo bersaglio grande si
+centra molto più facilmente di un modulo con due campi di testo.
+
+È un velo sopra la pagina (`xr/XRCover.js`), non un pezzo del login: la logica di
+accesso è di `core/`, e infilarcisi dentro significherebbe legarsi ai suoi tempi.
+
 #### L'interfaccia del tutorial, dentro il mondo
 
 In `immersive-vr` il DOM non esiste: il compositore mostra solo ciò che la pagina
@@ -366,15 +431,14 @@ con `message` **bloccava il tutorial per sempre**, perché il pulsante OK che lo
 sblocca era invisibile.
 
 `xr/XRUI.js` la rifà come geometria: un pannello di testo, il media del modale,
-la legenda degli strumenti e due o tre pulsanti,
-premibili col dito come qualunque comando della macchina — stessi bersagli,
-stesso magnete, stessa distanza di attivazione, perché passano per lo stesso
+la legenda degli strumenti e un pulsante,
+premibile col dito come qualunque comando della macchina — stessi bersagli,
+stesso magnete, stessa distanza di attivazione, perché passa per lo stesso
 `XRInput`.
 
 **Rispecchiare, non reimplementare.** Il pannello *legge* il DOM
-(`#stepDescription`, `#stepCurrentNumber`, `#infoModalMessage`, …) e *richiama*
-le stesse funzioni che userebbe il mouse: `UI.nextStep()`, `UI.prevStep()`, e per
-il modale un **click vero** sul vero `#infoModalOkBtn` — è quel click che risolve
+(`#stepDescription`, `#stepCurrentNumber`, `#infoModalMessage`, …) e per il
+modale fa un **click vero** sul vero `#infoModalOkBtn` — è quel click che risolve
 la promise su cui `core/` è fermo. Non è pigrizia: è l'unico modo per non avere
 due verità. La logica del tutorial — quando si può avanzare, cosa succede alla
 chiusura di un modale, quali step sono automatici — vive in `core/` ed è
@@ -401,8 +465,39 @@ appoggiato nello spazio, che si ritrova dove ci si aspetta.
 `XRUI.setPlacement(distanza, quantoSotto)` per tararlo, `XRUI.setVisible(false)`
 per toglierlo di mezzo.
 
-Con un modale aperto esiste **solo** OK: offrire "Avanti" mentre `core/` aspetta
-la chiusura porterebbe due navigazioni in volo.
+##### Niente "Avanti" e "Indietro": in VR si avanza facendo lo step
+
+Il pannello aveva due frecce che chiamavano `UI.nextStep()` e `UI.prevStep()`.
+Sono state tolte. Sul desktop saltare uno step è una scorciatoia innocua, perché
+il mouse ha comunque la scena davanti; in VR è il modo più rapido per portarsi
+via l'azione che lo step chiedeva — si preme "Avanti" e la spruzzata di spray non
+è mai avvenuta, ma il tutorial è andato oltre. L'unico modo di avanzare è quello
+vero: fare quello che lo step chiede.
+
+Resta il solo **OK**, e solo con un modale aperto: è il click che sblocca `core/`,
+fermo ad aspettarne la chiusura.
+
+##### Fine tutorial: il secondo modale, quello che non era `#infoModal`
+
+All'ultimo step `core/` non apre `#infoModal`: costruisce al volo
+`#congratulationsModal` (`Scene3D.displayCongratulationsModal`) e insieme mette
+`tutorialTracker.interactionsBlocked = true`.
+
+In VR questo produceva un vicolo cieco perfetto: il messaggio è DOM, quindi
+invisibile; la scena è congelata, quindi non c'è nulla da toccare; e il pannello
+mostrava ancora lo stato dello step come se niente fosse. Si finiva il tutorial e
+il mondo semplicemente smetteva di rispondere.
+
+Ora quel modale è rispecchiato come tutti gli altri — stesso pannello, stesso
+posto al centro, pulsante che dice **Continua** e che preme il vero
+`#congratulationsCloseBtn`, così la navigazione al tutorial successivo resta di
+`core/`.
+
+E `interactionsBlocked` **non spegne più il pannello**. Blocca la macchina, come
+deve: sul desktop il modale resta cliccabile mentre tutto ciò che sta dietro è
+inerte, e in VR vale lo stesso. `XRInput` restringe i bersagli ai soli `kind:
+'ui'` invece di azzerare ogni sorgente — bloccare anche l'unico pulsante che fa
+uscire dallo stato di blocco è ciò che rendeva il finale una trappola.
 
 ##### Ai lati mentre si lavora, al centro quando è lui il compito
 
@@ -549,9 +644,9 @@ destinazione viene proposta finché si punta il pannello.
 
 **Ma non si preme di passaggio.** Il raggio spazza la scena a ogni movimento del
 braccio, e un pinch fatto per teleportarsi premerebbe qualunque comando gli
-capiti sotto in quell'istante: basta che "Avanti" attraversi il raggio e lo step
-salta, portandosi via — per dire — la spruzzata di spray. Un comando che si
-attiva di passaggio è peggio di un comando irraggiungibile. Serve quindi un terzo
+capiti sotto in quell'istante: basta che lo strumento sbagliato attraversi il
+raggio e ci si ritrova la brugola in mano davanti a un passo da spray. Un comando
+che si attiva di passaggio è peggio di un comando irraggiungibile. Serve un terzo
 di secondo fermi sullo stesso bersaglio, che è un gesto che non si fa per caso;
 finché non è armato il raggio resta pallido.
 
@@ -718,6 +813,7 @@ scenario, o al primo calo di frame rate misurato.
 | 1 | Sessione XR: `renderer.xr`, `setAnimationLoop`, XRRig | ✅ fatto |
 | 3 | Input: pressione a contatto col dito | ✅ fatto |
 | 4 | UI del tutorial in-world | ✅ fatto |
+| 4c | Hall immersiva: copertina, scelta scenari in-world, ritorno a fine tutorial | 🧪 da provare sul Quest |
 | 7 | Locomozione: teleport, rotazione a scatti | ✅ fatto (anticipata: il poke la richiede) |
 | 2 | Pipeline asset | ⏸️ **rimandata** — vedi sotto |
 | 4b | Modali con immagine e video dentro il pannello | ⏳ prossima |

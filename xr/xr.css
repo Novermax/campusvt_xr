@@ -1,6 +1,72 @@
 /* Stili del layer WebXR. Solo elementi aggiunti da xr/: nessuna regola qui
    deve sovrascrivere il CSS di core/, per non alterare la resa 2D. */
 
+/* --- Copertina: il velo che si toglie una volta sola ---------------------- */
+
+#xrCover {
+    position: fixed;
+    inset: 0;
+    /* Sopra ogni cosa, barra XR compresa: finché c'è la copertina non deve
+       essere raggiungibile nient'altro. */
+    z-index: 2147483020;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    /* Fondo pieno anche senza immagine: se la copertina non carica resta una
+       schermata scura col pulsante, non un lampo bianco. */
+    background: #0d1117;
+    transition: opacity .4s ease;
+}
+
+#xrCoverArt {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    /* `contain`: la copertina è un'illustrazione, tagliarla per riempire lo
+       schermo del visore le toglierebbe proprio il soggetto. */
+    object-fit: contain;
+    object-position: center;
+}
+
+#xrCoverEnter {
+    /* Ancorato al fondo, non centrato: la copertina ha il suo soggetto in
+       mezzo, e un pulsante lì sopra lo copre proprio mentre lo si guarda. */
+    position: absolute;
+    bottom: 7%;
+    left: 50%;
+    transform: translateX(-50%);
+
+    padding: 20px 64px;
+    border: 0;
+    border-radius: 999px;
+
+    font: 700 22px/1 system-ui, -apple-system, Segoe UI, sans-serif;
+    color: #fff;
+    background: rgba(20, 90, 170, .96);
+
+    cursor: pointer;
+    /* Molto più grande della barra XR: qui si punta col raggio del visore
+       mentre ci si sta ancora sistemando le cinghie. */
+    min-width: 260px;
+    min-height: 68px;
+
+    box-shadow: 0 6px 26px rgba(0, 0, 0, .55);
+    transition: background .15s, transform .1s;
+}
+
+#xrCoverEnter:hover { background: rgba(26, 110, 205, .98); }
+/* La traslazione va ripetuta: `transform` non si somma, si sostituisce. */
+#xrCoverEnter:active { transform: translateX(-50%) scale(.97); }
+#xrCoverEnter:focus-visible { outline: 3px solid #ffd21e; outline-offset: 4px; }
+
+.xr-cover--gone {
+    opacity: 0;
+    pointer-events: none;
+}
+
 /* --- Barra XR: pulsante di ingresso + altezza operatore ------------------- */
 
 .xr-bar {

@@ -145,6 +145,12 @@
          * Risolve quando `Scene3D` ha renderer, scena e camera pronti. Il polling
          * è coerente col resto del codebase, che non emette eventi per questa
          * transizione.
+         *
+         * Se la scena non c'è ancora la crea, invece di aspettarla: `core/`
+         * chiama `Scene3D.init()` solo aprendo la pagina scenario, quindi stando
+         * in home non esisterebbe mai — e senza scena non c'è pulsante VR, e
+         * senza pulsante VR non si può entrare nella hall. Vedi `_initScene`.
+         *
          * @param {number} timeoutMs default 10 min: l'utente può restare fermo sul login.
          * @returns {Promise<boolean>} false se scaduto.
          */
@@ -154,11 +160,49 @@
                 const check = () => {
                     const S = window.Scene3D;
                     if (S && S.isInitialized && S.renderer && S.scene && S.camera) return resolve(true);
+                    if (this._initScene()) return check();
                     if (Date.now() > deadline) return resolve(false);
                     setTimeout(check, 250);
                 };
                 check();
             });
+        },
+
+        /**
+         * Crea la scena 3D stando in home, per poter entrare in VR da lì.
+         *
+         * `Scene3D.init()` non chiede che la pagina scenario sia visibile: legge
+         * `#canvas3d` dal DOM — che esiste sempre, anche dentro un contenitore
+         * `hidden` — e dimensiona il renderer su `window.innerWidth/innerHeight`,
+         * non sul canvas. Un canvas a dimensione zero non è comunque un problema
+         * in sessione immersiva, dove i fotogrammi vanno nel framebuffer della
+         * sessione e non sul canvas della pagina.
+         *
+         * Si aspetta il login: `#container` resta `hidden` finché non è fatto, e
+         * inizializzare prima significherebbe tenere un contesto WebGL aperto
+         * mentre l'utente è ancora sulla schermata di accesso.
+         *
+         * `core/` non viene toccato: `PageManager.onScenarioPageShown` inizializza
+         * solo `if (!window.Scene3D.scene)`, quindi trovandola già pronta la
+         * lascia stare.
+         *
+         * @returns {boolean} true se l'init è appena riuscito.
+         */
+        _initScene: function () {
+            const S = window.Scene3D;
+            if (!S || typeof S.init !== 'function' || S.scene) return false;
+            if (this._initTried) return false;
+
+            const container = document.getElementById('container');
+            if (!container || container.classList.contains('hidden')) return false;
+            if (!document.getElementById('canvas3d')) return false;
+
+            this._initTried = true;
+            const ok = S.init();
+            console.log(ok
+                ? '[XR] Scena creata dalla home: si può entrare in VR senza aprire uno scenario.'
+                : '[XR] Scena non creata dalla home: il pulsante VR resterà in attesa.');
+            return !!ok;
         },
 
         // =====================================================================
@@ -922,7 +966,7 @@
                 'motivo': res.reason,
                 'contesto sicuro': window.isSecureContext ? 'sì (https/localhost)' : 'NO — WebXR richiede HTTPS',
                 'Three.js': window.THREE ? `r${window.THREE.REVISION}` : 'non caricato',
-                'Scene3D': S && S.isInitialized ? 'inizializzato' : 'non ancora (si apre con la pagina scenario)',
+                'Scene3D': S && S.isInitialized ? 'inizializzato' : 'non ancora (si apre dopo il login)',
                 'renderer.xr': S && S.renderer && S.renderer.xr ? 'presente' : 'assente',
                 'loop': this._loopOwned ? 'setAnimationLoop (XR)' : 'requestAnimationFrame (legacy core)',
                 'TouchSystem': window.TouchSystem && window.TouchSystem.initialized ? 'attivo' : 'inattivo',

@@ -48,6 +48,9 @@ const CORE_ASSETS = [
     { path: 'assembly_configs',  heavy: false },
     { path: 'models',            heavy: false }, // solo texture; i .glb arrivano dal Worker
     { path: 'users.txt',         heavy: false },
+    // Copertina della landing XR. Vive a monte in core/docs/, che per il resto
+    // non è runtime: si pubblica il singolo file, non la cartella.
+    { path: 'docs/COPERTINA.png', heavy: false },
     { path: 'interfaceconfig.ini', heavy: false },
     { path: 'information.png',   heavy: false },
     { path: 'newlogo.png',       heavy: false },
@@ -82,9 +85,26 @@ const XR_STYLES = ['xr/xr.css'];
 // XRButton e XRInput prima di XRSession: quest'ultimo li usa a init e a sessione avviata.
 // XRLog per primo: intercetta la console, deve esserci prima che gli altri parlino.
 const XR_SCRIPTS = [
-    'xr/XRLog.js', 'xr/XRButton.js', 'xr/XRLocomotion.js',
-    'xr/XRHold.js', 'xr/XRUI.js', 'xr/XRInput.js', 'xr/XRSession.js',
+    'xr/XRLog.js', 'xr/XRCover.js', 'xr/XRButton.js', 'xr/XRLocomotion.js',
+    'xr/XRHold.js', 'xr/XRUI.js', 'xr/XRHall.js', 'xr/XRInput.js', 'xr/XRSession.js',
 ];
+
+/**
+ * Copertina: la prima cosa che si vede, prima ancora del login.
+ *
+ * Sta sopra tutto invece di essere infilata dentro `#loginPage`: la logica di
+ * accesso è di `core/` — mostra e nasconde quella pagina da sé, e ci appende
+ * l'esito delle credenziali — e infilarcisi dentro significherebbe legarsi a
+ * quei tempi. Un velo sopra, che si toglie e non torna, non ha nulla da
+ * concordare con nessuno.
+ *
+ * `aria-hidden` sul quadro: la copertina è decorativa, il testo utile è nel
+ * pulsante.
+ */
+const COVER_HTML = `    <div id="xrCover" role="dialog" aria-label="Ingresso">
+        <img id="xrCoverArt" src="docs/COPERTINA.png" alt="" aria-hidden="true">
+        <button id="xrCoverEnter" type="button">Entra</button>
+    </div>`;
 
 /**
  * Cache-buster sui file XR, calcolato dal contenuto.
@@ -137,8 +157,8 @@ function transformIndexHtml(html) {
     //    quindi l'ordine esatto rispetto a js/app.js (type=module, async) è indifferente.
     const scriptTags = XR_SCRIPTS.map((s) => `    <script src="${s}${bust(s)}"></script>`).join('\n');
     if (!html.includes('</body>')) throw new Error('index.html: </body> non trovato');
-    html = html.replace('</body>', `\n    <!-- === CVT-XR: layer WebXR === -->\n${scriptTags}\n</body>`);
-    report.injected.push(...XR_SCRIPTS);
+    html = html.replace('</body>', `\n    <!-- === CVT-XR: layer WebXR === -->\n${COVER_HTML}\n${scriptTags}\n</body>`);
+    report.injected.push(...XR_SCRIPTS, 'copertina');
 
     // 5. Titolo, per distinguere la scheda dalla versione standard.
     html = html.replace(/<title>[\s\S]*?<\/title>/, '<title>Campus Virtual Training — WebXR</title>');
@@ -184,7 +204,11 @@ async function main() {
             console.log(`   ⏭️  core/${p} saltato (--lite)`);
             continue;
         }
-        await cp(src, join(OUT, p), { recursive: true });
+        // `cp` non crea le cartelle intermedie della destinazione: per un
+        // asset annidato (docs/COPERTINA.png) senza questa riga fallirebbe.
+        const dest = join(OUT, p);
+        await mkdir(dirname(dest), { recursive: true });
+        await cp(src, dest, { recursive: true });
         const size = await dirSize(src);
         copied += size;
         console.log(`   ✓ core/${p.padEnd(20)} ${mb(size).padStart(10)}`);
