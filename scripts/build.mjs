@@ -50,7 +50,7 @@ const CORE_ASSETS = [
     { path: 'users.txt',         heavy: false },
     // Copertina della landing XR. Vive a monte in core/docs/, che per il resto
     // non è runtime: si pubblica il singolo file, non la cartella.
-    { path: 'docs/COPERTINA.png', heavy: false },
+    // docs/COPERTINA.png non serve più: la copertina è `xr/copertina.png`.
     { path: 'interfaceconfig.ini', heavy: false },
     { path: 'information.png',   heavy: false },
     { path: 'newlogo.png',       heavy: false },
@@ -101,8 +101,13 @@ const XR_SCRIPTS = [
  * `aria-hidden` sul quadro: la copertina è decorativa, il contenuto utile è il
  * form che ci viene spostato dentro.
  */
-const COVER_HTML = `    <div id="xrCover" role="dialog" aria-label="Accesso">
-        <img id="xrCoverArt" src="docs/COPERTINA.png" alt="" aria-hidden="true">
+/** L'immagine della copertina. Sta in `xr/` e non in `core/`: è materiale di
+ *  questa versione, e `core/` è di sola lettura. Col cache-buster come tutto il
+ *  resto — senza, il Quest Browser continua a mostrare la copertina vecchia. */
+const COVER_ART = 'xr/copertina.png';
+
+const coverHtml = () => `    <div id="xrCover" role="dialog" aria-label="Accesso">
+        <img id="xrCoverArt" src="${COVER_ART}${bust(COVER_ART)}" alt="" aria-hidden="true">
         <div id="xrCoverLogin"></div>
     </div>`;
 
@@ -157,7 +162,7 @@ function transformIndexHtml(html) {
     //    quindi l'ordine esatto rispetto a js/app.js (type=module, async) è indifferente.
     const scriptTags = XR_SCRIPTS.map((s) => `    <script src="${s}${bust(s)}"></script>`).join('\n');
     if (!html.includes('</body>')) throw new Error('index.html: </body> non trovato');
-    html = html.replace('</body>', `\n    <!-- === CVT-XR: layer WebXR === -->\n${COVER_HTML}\n${scriptTags}\n</body>`);
+    html = html.replace('</body>', `\n    <!-- === CVT-XR: layer WebXR === -->\n${coverHtml()}\n${scriptTags}\n</body>`);
     report.injected.push(...XR_SCRIPTS, 'copertina');
 
     // 5. Titolo, per distinguere la scheda dalla versione standard.
