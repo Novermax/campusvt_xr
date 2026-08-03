@@ -88,6 +88,31 @@
     const T_HALL = { it: 'Scenari', eng: 'Scenarios', fra: 'Scénarios', deu: 'Szenarien' };
 
     /**
+     * L'interfaccia sta **dentro** il mondo, o davanti a tutto?
+     *
+     * Nasce disegnata senza test di profondità: un pannello mangiato dalla
+     * lamiera della cabina è illeggibile proprio quando serve. Ma il prezzo lo
+     * si paga sulla mano: il fumetto e la pulsantiera coprivano anche le dita
+     * che ci passavano davanti, e un oggetto che non si riesce a mettere dietro
+     * la propria mano non sembra un oggetto — sembra un adesivo sulla lente.
+     *
+     * Ora rispettano la profondità come tutto il resto. La scelta resta
+     * cambiabile (vedi `setProfondita`) perché il caso opposto esiste davvero:
+     * infilando la testa nella macchina, la pulsantiera finisce dentro un
+     * pezzo di lamiera e sparisce. Chi prova sul visore deve poter tornare
+     * indietro senza aspettare una modifica al codice.
+     *
+     * Chiave e persistenza stanno in `XRSession`, dove già vivono scala del
+     * mondo e altezza occhi: le impostazioni si preparano dalla pagina 2D e poi
+     * si indossa il visore.
+     */
+    function profonditaAttiva() {
+        const XS = window.XRSession;
+        if (!XS || typeof XS.getPanelDepth !== 'function') return true;
+        return XS.getPanelDepth();
+    }
+
+    /**
      * Posa della pulsantiera degli strumenti.
      *
      * Non è un cartello da leggere, è una tastiera da premere: il riferimento
@@ -281,10 +306,13 @@
 
             const mesh = new THREE.Mesh(
                 new THREE.PlaneGeometry(w, h),
-                new THREE.MeshBasicMaterial({ map: tex, transparent: true, toneMapped: false, depthTest: false })
+                new THREE.MeshBasicMaterial({
+                    map: tex, transparent: true, toneMapped: false,
+                    depthTest: profonditaAttiva(), depthWrite: false,
+                })
             );
-            // Davanti alla macchina: un pannello mangiato dalla geometria della
-            // cabina sarebbe illeggibile proprio quando serve.
+            // L'ordine conta ancora, ma solo **fra** i pezzi dell'interfaccia:
+            // l'icona sopra la cornice, non l'interfaccia sopra il mondo.
             mesh.renderOrder = 998;
             mesh.userData.canvas = canvas;
             mesh.userData.tex = tex;
@@ -313,7 +341,10 @@
             const THREE = window.THREE;
             const mesh = new THREE.Mesh(
                 new THREE.PlaneGeometry(MEDIA_W, MEDIA_W * 0.5625),
-                new THREE.MeshBasicMaterial({ transparent: true, toneMapped: false, depthTest: false })
+                new THREE.MeshBasicMaterial({
+                    transparent: true, toneMapped: false,
+                    depthTest: profonditaAttiva(), depthWrite: false,
+                })
             );
             mesh.renderOrder = 998;
             mesh.visible = false;
@@ -544,8 +575,12 @@
                 if (tool.icon) {
                     const icon = new THREE.Mesh(
                         new THREE.PlaneGeometry(TOOL_SIZE * 0.62, TOOL_SIZE * 0.62),
-                        new THREE.MeshBasicMaterial({ transparent: true, toneMapped: false, depthTest: false })
+                        new THREE.MeshBasicMaterial({
+                            transparent: true, toneMapped: false,
+                            depthTest: profonditaAttiva(), depthWrite: false,
+                        })
                     );
+                    // Dopo la cornice, che è al 998: l'icona le sta sopra.
                     icon.renderOrder = 999;
                     icon.position.z = 0.001;
                     loader.load(tool.icon, (tex) => {
@@ -1053,6 +1088,29 @@
         // =====================================================================
         // Regolazioni
         // =====================================================================
+
+        /**
+         * Applica la scelta su profondità ai materiali già creati.
+         *
+         * Chiamato da `XRSession.setPanelDepth`, che è dove la scelta vive e
+         * viene ricordata. Qui si tocca solo il disegno: `depthWrite` resta
+         * sempre spento, perché l'interfaccia non deve nascondere sé stessa —
+         * fra i suoi pezzi comanda `renderOrder`, non la distanza.
+         *
+         * @param {boolean} on true = l'interfaccia sta dentro il mondo.
+         */
+        setProfondita: function (on) {
+            const v = !!on;
+            if (!this.root) return v;
+            this.root.traverse((o) => {
+                if (!o.material) return;
+                o.material.depthTest = v;
+                o.material.depthWrite = false;
+                o.material.needsUpdate = true;
+            });
+            console.log(`[XRUI] Pannelli ${v ? 'dietro gli oggetti' : 'sempre davanti'}.`);
+            return v;
+        },
 
         /** Mostra o nasconde il pannello. Nascosto non è nemmeno premibile. */
         setVisible: function (on) {

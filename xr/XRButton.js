@@ -59,6 +59,7 @@
             // persistite, quindi si preparano da desktop e poi si indossa il visore.
             bar.appendChild(this._buildScaleSlider(xrSession));
             bar.appendChild(this._buildCursorToggle());
+            bar.appendChild(this._buildPanelDepthToggle(xrSession));
             bar.appendChild(this._buildHeightPicker(xrSession));
             bar.appendChild(this._buildGripPanel());
             document.body.appendChild(bar);
@@ -152,6 +153,46 @@
             sel.addEventListener('change', () => {
                 if (window.XRInput) window.XRInput.setCursorMode(sel.value);
             });
+
+            wrap.appendChild(txt);
+            wrap.appendChild(sel);
+            return wrap;
+        },
+
+        /**
+         * Dove sta l'interfaccia: dentro il mondo o davanti a tutto.
+         *
+         * Le due scelte hanno ciascuna un difetto, e quale pesi di più dipende
+         * da dove si è: dentro il mondo la mano copre il fumetto — che è ciò
+         * che ci si aspetta — ma infilando la testa nella macchina la
+         * pulsantiera finisce dentro la lamiera e sparisce. Sempre davanti non
+         * sparisce mai, ma copre anche le proprie dita.
+         *
+         * Il comando sta qui, sulla pagina 2D, per lo stesso motivo del segno di
+         * contatto: dentro il visore non c'è console, e una regolazione senza
+         * comando non è regolabile da chi sta provando.
+         */
+        _buildPanelDepthToggle: function (xrSession) {
+            const wrap = document.createElement('label');
+            wrap.className = 'xr-toggle';
+            wrap.title = 'Fumetto, strumenti e card della hall.\n\n'
+                + '• Dentro il mondo — la mano che ci passa davanti li copre,\n'
+                + '  come per ogni altro oggetto. Ma dentro la macchina possono\n'
+                + '  finire nascosti da un pezzo di lamiera.\n'
+                + '• Sempre davanti — non spariscono mai, ma coprono anche le dita.';
+
+            const txt = document.createElement('span');
+            txt.textContent = 'Pannelli';
+
+            const sel = document.createElement('select');
+            [['1', 'Dentro il mondo'], ['0', 'Sempre davanti']].forEach(([v, label]) => {
+                const o = document.createElement('option');
+                o.value = v;
+                o.textContent = label;
+                sel.appendChild(o);
+            });
+            sel.value = xrSession.getPanelDepth() ? '1' : '0';
+            sel.addEventListener('change', () => xrSession.setPanelDepth(sel.value === '1'));
 
             wrap.appendChild(txt);
             wrap.appendChild(sel);

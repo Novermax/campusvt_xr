@@ -380,6 +380,37 @@ check('e nemmeno il titolo se arriva vuoto',
 H.dispose();
 config = { scenarios: scenari };
 
+// ── 8d. Le card stanno dentro il mondo ────────────────────────────────
+// Come il fumetto del tutorial: la mano che ci passa davanti le copre.
+// Il pavimento della hall non e' toccato — vive nella scena, non nel root.
+
+H.dispose();
+pagina = 'home';
+paginaDom = null;
+config = { scenarios: scenari };
+window.UI = UI_MONOLITE;
+const rig6 = new THREE.Object3D();
+scene.add(rig6);
+H.init({ isPresenting: true, rig: rig6 });
+H.update();
+
+const mat = [];
+H.root.traverse((o) => { if (o.material) mat.push(o); });
+check('le card rispettano la profondita', mat.length > 0 && mat.every((o) => o.material.depthTest === true),
+    `${mat.length} pezzi`);
+check('e nessuna scrive profondita', mat.every((o) => o.material.depthWrite === false));
+
+H.setProfondita(false);
+check('la scelta si ribalta a caldo anche qui', mat.every((o) => o.material.depthTest === false));
+H.setProfondita(true);
+
+// Il pavimento e' geometria vera: deve continuare a scrivere profondita',
+// o gli oggetti dietro di esso gli passerebbero attraverso.
+const disco = H.floor.children.find((c) => c.material);
+check('ma il pavimento resta geometria normale',
+    disco.material.depthWrite !== false && disco.material.depthTest !== false);
+H.dispose();
+
 // ── 8. Chiusura: niente resta appeso alla scena ────────────────────────
 H.dispose();
 check('chiudendo la sessione la hall si stacca dalla scena',

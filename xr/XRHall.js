@@ -112,6 +112,14 @@
      * lasciare una riga nel log che dica chi era: il pannello «📋 Log XR» la
      * riporta fuori dalla sessione.
      */
+    /** Se le card stanno dentro il mondo o davanti a tutto. La scelta vive in
+     *  `XRSession`; qui si legge soltanto. Vedi `XRUI.profonditaAttiva`. */
+    function profonditaAttiva() {
+        const XS = window.XRSession;
+        if (!XS || typeof XS.getPanelDepth !== 'function') return true;
+        return XS.getPanelDepth();
+    }
+
     function testoSicuro(v, dove) {
         if (typeof v === 'string') return v;
         if (v === null || v === undefined) {
@@ -250,7 +258,14 @@
 
             const mesh = new THREE.Mesh(
                 new THREE.PlaneGeometry(w, h),
-                new THREE.MeshBasicMaterial({ map: tex, transparent: true, toneMapped: false, depthTest: false })
+                new THREE.MeshBasicMaterial({
+                    map: tex, transparent: true, toneMapped: false,
+                    // Come il pannello del tutorial: le card stanno dentro il
+                    // mondo, e la mano che ci passa davanti le copre. Vedi
+                    // `XRUI.profonditaAttiva` per il perché e per come tornare
+                    // indietro.
+                    depthTest: profonditaAttiva(), depthWrite: false,
+                })
             );
             mesh.renderOrder = 998;
             mesh.userData.canvas = canvas;
@@ -557,6 +572,20 @@
             console.warn('[XRHall] Nessuno scenario dopo '
                 + (ATTESA_MAX_MS / 1000) + 's. UI.scenariosConfig: '
                 + JSON.stringify(window.UI ? (window.UI.scenariosConfig === undefined ? 'assente' : (window.UI.scenariosConfig === null ? 'null' : 'presente')) : 'UI assente'));
+        },
+
+        /** Applica la scelta su profondità alle card già create.
+         *  Chiamata da `XRSession.setPanelDepth`, dove la scelta è ricordata. */
+        setProfondita: function (on) {
+            const v = !!on;
+            if (!this.root) return v;
+            this.root.traverse((o) => {
+                if (!o.material) return;
+                o.material.depthTest = v;
+                o.material.depthWrite = false;
+                o.material.needsUpdate = true;
+            });
+            return v;
         },
 
         setVisible: function (on) {

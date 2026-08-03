@@ -34,6 +34,9 @@
     /** Chiave localStorage del fattore di scala del mondo. */
     const WORLD_SCALE_KEY = 'cvtxr.worldScale';
 
+    /** Se l'interfaccia in-world rispetta la profondità. Vedi `getPanelDepth`. */
+    const PANEL_DEPTH_KEY = 'cvtxr.pannelliInProfondita';
+
     /** Limiti del fattore di scala: oltre questi la stereoscopia diventa sgradevole. */
     const SCALE_MIN = 0.5;
     const SCALE_MAX = 4.0;
@@ -94,6 +97,7 @@
         _lastTuneTime: null,
         _lastHapticStep: null,
         _worldScale: null,
+        _panelDepth: null,
         _tuning: false,
         /** Ultima altezza occhi misurata dal visore, in metri. Diagnostica. */
         measuredEyeHeight: null,
@@ -941,6 +945,64 @@
             this._applyWorldScale(s);
             this._emit('scale');
             return s;
+        },
+
+        // =====================================================================
+        // Profondità dell'interfaccia
+        // =====================================================================
+
+        /*
+         * Il fumetto del tutorial, la pulsantiera degli strumenti e le card
+         * della hall nascevano disegnati **davanti a tutto**: nessun test di
+         * profondità, così un pannello non poteva finire mangiato dalla lamiera
+         * della cabina proprio mentre lo si legge.
+         *
+         * Il prezzo però lo pagava la mano. Passando le dita davanti al
+         * fumetto, il fumetto restava sopra: un oggetto che non si riesce a
+         * mettere dietro la propria mano non sembra un oggetto, sembra un
+         * adesivo attaccato alla lente. Ed è la mano lo strumento con cui si
+         * preme tutto, quindi l'errore si vede in continuazione.
+         *
+         * Adesso l'interfaccia sta dentro il mondo come ogni altra cosa. La
+         * scelta resta però ribaltabile, perché il caso opposto esiste: con la
+         * testa dentro la macchina, la pulsantiera finisce dentro un pezzo di
+         * lamiera e sparisce. Chi prova sul visore deve poter tornare indietro
+         * subito, senza aspettare una modifica al codice — per questo la
+         * regolazione ha un comando sulla pagina 2D e viene ricordata.
+         *
+         * Il segno di contatto NON è compreso: la pallina sul dito resta sopra
+         * a tutto di proposito, ed è documentato in XRInput perché senza si
+         * perde la mira.
+         */
+
+        /** @returns {boolean} true se l'interfaccia rispetta la profondità. */
+        getPanelDepth: function () {
+            if (this._panelDepth === null) {
+                let v = null;
+                try { v = localStorage.getItem(PANEL_DEPTH_KEY); } catch (e) { /* storage negato */ }
+                // Senza scelta salvata: dentro il mondo.
+                this._panelDepth = v === null ? true : v === '1';
+            }
+            return this._panelDepth;
+        },
+
+        /**
+         * @param {boolean} on true = l'interfaccia sta dentro il mondo e la mano
+         *        la copre; false = sempre davanti, come prima.
+         */
+        setPanelDepth: function (on) {
+            const v = !!on;
+            this._panelDepth = v;
+            try { localStorage.setItem(PANEL_DEPTH_KEY, v ? '1' : '0'); } catch (e) { /* storage negato */ }
+
+            // Ai due che disegnano pannelli. Possono non esserci ancora: la
+            // scelta si fa anche da desktop, prima di entrare, e allora la
+            // leggeranno da soli creando i materiali.
+            if (window.XRUI && window.XRUI.setProfondita) window.XRUI.setProfondita(v);
+            if (window.XRHall && window.XRHall.setProfondita) window.XRHall.setProfondita(v);
+
+            console.log(`[XR] Interfaccia ${v ? 'dentro il mondo (la mano la copre)' : 'sempre davanti'}.`);
+            return v;
         },
 
         /** Salva la scala corrente. Separato da setWorldScale per non toccare

@@ -403,5 +403,32 @@ check('un pulsante senza etichetta resta muto, non dice "undefined"',
     !drawn.some((t) => /undefined/i.test(t)), drawn.join(' | ').slice(0, 40));
 UIX.btnHall.userData.label = 'Scenari';
 
+// ── 15. L'interfaccia sta dentro il mondo ─────────────────────────────
+//
+// Nasceva disegnata senza test di profondita': un pannello mangiato dalla
+// lamiera e' illeggibile proprio quando serve. Ma cosi' il fumetto restava
+// sopra anche alle dita che ci passavano davanti, e un oggetto che non si
+// riesce a mettere dietro la propria mano non sembra un oggetto: sembra un
+// adesivo attaccato alla lente.
+
+const materiali = [];
+UIX.root.traverse((o) => { if (o.material) materiali.push(o); });
+check('tutti i pezzi del pannello rispettano la profondita',
+    materiali.length > 0 && materiali.every((o) => o.material.depthTest === true),
+    materiali.filter((o) => !o.material.depthTest).map((o) => o.name).join(',') || `${materiali.length} pezzi`);
+check('ma nessuno scrive profondita: fra loro comanda renderOrder',
+    materiali.every((o) => o.material.depthWrite === false));
+check('e l icona dello strumento resta sopra la sua cornice',
+    UIX.tools.length > 0 && UIX.tools.every((t) => t.userData.icon.renderOrder > t.renderOrder));
+
+// Ribaltabile: dentro la macchina la pulsantiera puo' finire in un pezzo di
+// lamiera, e chi prova deve poter tornare indietro senza aspettare una
+// modifica al codice.
+UIX.setProfondita(false);
+check('e la scelta si puo ribaltare a caldo',
+    materiali.every((o) => o.material.depthTest === false));
+UIX.setProfondita(true);
+check('e rimettere', materiali.every((o) => o.material.depthTest === true));
+
 console.log(fails ? `\n${fails} PROVE FALLITE` : '\nTutte le prove passate');
 process.exit(fails ? 1 : 0);
