@@ -10,35 +10,30 @@
        essere raggiungibile nient'altro. */
     z-index: 2147483020;
 
+    /* Una colonna: titolo, poi accesso. Senza illustrazione non c'è un
+       soggetto da non coprire, e la cosa più leggibile è metterli in mezzo. */
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: clamp(24px, 5vh, 56px);
+    padding: 4vh 4vw;
 
-    /* Fondo pieno anche senza immagine: se la copertina non carica resta una
-       schermata scura col pulsante, non un lampo bianco. */
     background: #0d1117;
     transition: opacity .4s ease;
 }
 
-#xrCoverArt {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    /* `contain`: la copertina è un'illustrazione, tagliarla per riempire lo
-       schermo del visore le toglierebbe proprio il soggetto. */
-    object-fit: contain;
-    object-position: center;
+#xrCoverTitolo {
+    margin: 0;
+    text-align: center;
+    color: #f2f5f9;
+    /* Grande: sul visore si legge da lontano, attraverso una lente. */
+    font: 700 clamp(28px, 6vw, 64px)/1.15 system-ui, -apple-system, "Segoe UI", sans-serif;
+    letter-spacing: .01em;
 }
 
-/* Il modulo di accesso, spostato qui dentro da XRCover: ancorato in basso,
-   perché la copertina ha il suo soggetto in mezzo e un pannello lì sopra lo
-   coprirebbe proprio mentre lo si guarda. */
+/* Il modulo di accesso, spostato qui dentro da XRCover. */
 #xrCoverLogin {
-    position: absolute;
-    bottom: 4%;
-    left: 50%;
-    transform: translateX(-50%);
     width: min(92vw, 460px);
     max-height: 62vh;
     overflow-y: auto;

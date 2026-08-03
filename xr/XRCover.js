@@ -1,9 +1,13 @@
 /**
  * XRCover.js — la copertina, che è anche la schermata di accesso.
  *
- * La versione WebXR si apre su un quadro a tutta pagina con dentro i campi di
+ * La versione WebXR si apre su una schermata spoglia: il titolo, i campi di
  * sempre — utente, password — e il pulsante **ENTRA**. Premutolo, si è dentro:
  * autenticazione, lingua dell'utente, e da lì direttamente nella Home in VR.
+ *
+ * Niente illustrazione dietro: la si guarda per il tempo di scrivere due
+ * parole, e un quadro a tutta pagina sotto un modulo si legge peggio di un
+ * fondo pieno.
  *
  * ## Una schermata sola, e perché
  *
@@ -46,16 +50,6 @@
             const el = document.getElementById('xrCover');
             if (!el) return;
             this.el = el;
-
-            // La copertina non deve poter diventare una trappola: se l'immagine
-            // non arriva — cache vuota, rete lenta, file rinominato a monte —
-            // resta comunque il modulo su fondo pieno. Meglio una copertina
-            // spoglia che una pagina che non si supera.
-            const art = document.getElementById('xrCoverArt');
-            if (art) art.addEventListener('error', () => {
-                art.style.display = 'none';
-                console.warn('[XRCover] Copertina non caricata: resta il solo modulo di accesso.');
-            });
 
             this._adoptLogin();
             console.log('[XRCover] Copertina con accesso mostrata.');

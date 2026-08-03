@@ -48,9 +48,6 @@ const CORE_ASSETS = [
     { path: 'assembly_configs',  heavy: false },
     { path: 'models',            heavy: false }, // solo texture; i .glb arrivano dal Worker
     { path: 'users.txt',         heavy: false },
-    // Copertina della landing XR. Vive a monte in core/docs/, che per il resto
-    // non è runtime: si pubblica il singolo file, non la cartella.
-    // docs/COPERTINA.png non serve più: la copertina è `xr/copertina.png`.
     { path: 'interfaceconfig.ini', heavy: false },
     { path: 'information.png',   heavy: false },
     { path: 'newlogo.png',       heavy: false },
@@ -92,22 +89,18 @@ const XR_SCRIPTS = [
 /**
  * Copertina: la prima cosa che si vede, e insieme la schermata di accesso.
  *
+ * Senza illustrazione, per scelta: un titolo e i campi. Sul visore la
+ * copertina si guarda per il tempo di scrivere due parole, e un quadro a
+ * tutta pagina dietro un modulo si fa leggere peggio di un fondo pieno.
+ *
  * Qui c'è solo il contenitore. I campi non sono duplicati: a runtime
  * `xr/XRCover.js` **sposta dentro `#xrCoverLogin` il `#loginPage` di `core/`**,
  * con il suo form e la sua logica. Un secondo modulo di accesso vorrebbe dire
  * due autenticazioni che divergono, e la nostra sarebbe quella senza scadenze
  * account né ruoli.
- *
- * `aria-hidden` sul quadro: la copertina è decorativa, il contenuto utile è il
- * form che ci viene spostato dentro.
  */
-/** L'immagine della copertina. Sta in `xr/` e non in `core/`: è materiale di
- *  questa versione, e `core/` è di sola lettura. Col cache-buster come tutto il
- *  resto — senza, il Quest Browser continua a mostrare la copertina vecchia. */
-const COVER_ART = 'xr/copertina.png';
-
 const coverHtml = () => `    <div id="xrCover" role="dialog" aria-label="Accesso">
-        <img id="xrCoverArt" src="${COVER_ART}${bust(COVER_ART)}" alt="" aria-hidden="true">
+        <h1 id="xrCoverTitolo">Campus Virtual Training XR</h1>
         <div id="xrCoverLogin"></div>
     </div>`;
 
@@ -210,7 +203,7 @@ async function main() {
             continue;
         }
         // `cp` non crea le cartelle intermedie della destinazione: per un
-        // asset annidato (docs/COPERTINA.png) senza questa riga fallirebbe.
+        // asset annidato (es. `docs/qualcosa.png`) senza questa riga fallirebbe.
         const dest = join(OUT, p);
         await mkdir(dirname(dest), { recursive: true });
         await cp(src, dest, { recursive: true });

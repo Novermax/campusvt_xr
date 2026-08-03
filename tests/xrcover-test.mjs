@@ -43,7 +43,7 @@ function el(id) {
 /** Pagina finta: copertina, slot, login di core, container. */
 function pagina({ containerVisibile }) {
     const byId = {};
-    for (const id of ['xrCover', 'xrCoverArt', 'xrCoverLogin', 'loginPage', 'container', 'username']) {
+    for (const id of ['xrCover', 'xrCoverTitolo', 'xrCoverLogin', 'loginPage', 'container', 'username']) {
         byId[id] = el(id);
     }
     byId.loginPage._btn = el('btnLogin');           // il bottone del form di core
