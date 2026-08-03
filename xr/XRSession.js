@@ -290,6 +290,7 @@
 
             try {
                 this._takeOverRenderLoop();
+                this._shimPageRaf();
                 this._attachRig();
 
                 const renderer = S.renderer;
@@ -439,6 +440,48 @@
 
             this._loopOwned = true;
             console.log('[XR] Loop di render passato a renderer.setAnimationLoop (richiesto da WebXR).');
+        },
+
+        /**
+         * Tiene vivo `window.requestAnimationFrame` durante la sessione immersiva.
+         *
+         * Dentro una sessione WebXR il browser **congela il rAF di pagina**: i
+         * fotogrammi passano da `XRSession.requestAnimationFrame`, e le callback
+         * accodate con `window.requestAnimationFrame` non scattano più finché
+         * non si esce. `core/` però lo usa come "appena puoi": modelloader.js
+         * consegna i modelli caricati (`onComplete`) da dentro un rAF — ed è
+         * per questo che sul Quest si entrava in uno scenario **vuoto per
+         * sempre**: i GLB arrivavano, ma la consegna restava accodata a un
+         * fotogramma di pagina che non sarebbe mai esistito.
+         *
+         * In sessione quindi il rAF di pagina ripiega su `setTimeout(16ms)`:
+         * le callback girano, non sincronizzate col visore — ma chi usa rAF
+         * come timer non chiede la sincronia, chiede di girare. Il loop legacy
+         * di scene3d, che pure si ri-accoda via rAF, resta innocuo: il suo
+         * `render` è già zittito da `_takeOverRenderLoop`.
+         *
+         * Fuori sessione non cambia nulla: si delega al rAF nativo. Lo shim si
+         * installa una volta e resta: è il flag `isPresenting` a decidere.
+         */
+        _shimPageRaf: function () {
+            if (this._rafShimmed) return;
+            this._rafShimmed = true;
+
+            const self = this;
+            const nativeRaf = window.requestAnimationFrame.bind(window);
+            const nativeCaf = window.cancelAnimationFrame.bind(window);
+
+            window.requestAnimationFrame = function (cb) {
+                if (!self.isPresenting) return nativeRaf(cb);
+                return setTimeout(() => cb(performance.now()), 16);
+            };
+            window.cancelAnimationFrame = function (id) {
+                // L'id può venire dall'uno o dall'altro spazio: annullare in
+                // entrambi è innocuo, l'id sbagliato è semplicemente ignorato.
+                clearTimeout(id);
+                nativeCaf(id);
+            };
+            console.log('[XR] rAF di pagina con ripiego a timer durante la sessione: le consegne di core/ non restano appese.');
         },
 
         // =====================================================================
