@@ -605,6 +605,12 @@
             console.log(`[XRHall] Entro nello scenario "${sc.name}".`);
             load(sc);
 
+            // Portarsi al punto di vista dello scenario, o si resta in piedi al
+            // centro della hall — che è l'origine, cioè dentro la macchina.
+            if (window.XRSession && window.XRSession.placeRigForScenario) {
+                window.XRSession.placeRigForScenario(sc);
+            }
+
             // Non si aspetta il caricamento per nascondere la hall: `update` la
             // toglie da sé appena `currentPage` diventa 'scenario'. Aspettare
             // qui vorrebbe dire indovinare quando i modelli sono pronti.

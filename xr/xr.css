@@ -105,6 +105,45 @@
     pointer-events: none;
 }
 
+/* --- Il varco: quando l'ingresso automatico non è riuscito ---------------- */
+/* Copre la home 2D dove il visore c'è: la scelta degli scenari si fa in VR,
+   e mostrarla in 2D significherebbe farla scegliere lì. */
+
+#xrGate {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483015;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background: #0d1117;
+}
+
+#xrGateEnter {
+    padding: 26px 72px;
+    border: 0;
+    border-radius: 999px;
+
+    font: 700 26px/1 system-ui, -apple-system, Segoe UI, sans-serif;
+    color: #fff;
+    background: rgba(20, 90, 170, .96);
+
+    cursor: pointer;
+    /* Un bersaglio solo, e grande: si punta col raggio del visore. */
+    min-width: 320px;
+    min-height: 84px;
+
+    box-shadow: 0 6px 26px rgba(0, 0, 0, .55);
+    transition: background .15s, transform .1s;
+}
+
+#xrGateEnter:hover:not(:disabled) { background: rgba(26, 110, 205, .98); }
+#xrGateEnter:active:not(:disabled) { transform: scale(.97); }
+#xrGateEnter:disabled { opacity: .6; cursor: default; }
+#xrGateEnter:focus-visible { outline: 3px solid #ffd21e; outline-offset: 4px; }
+
 /* --- Barra XR: pulsante di ingresso + altezza operatore ------------------- */
 
 .xr-bar {

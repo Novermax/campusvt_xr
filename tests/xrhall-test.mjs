@@ -156,7 +156,19 @@ check('e a elenco invariato non si ricostruisce nulla', H.version === v);
 
 // ── 3. Premere una card entra nello scenario ───────────────────────────
 const rigPrima = rig.parent;
+// L'osservatore deve essere portato al punto di vista dello scenario: entrando
+// dall'origine — dove sta la hall — ci si ritroverebbe DENTRO la macchina, che
+// e' modellata proprio li' attorno, e la scena sembrerebbe vuota.
+const spostato = [];
+window.XRSession = {
+    isPresenting: true,
+    rig,
+    placeRigForScenario(sc) { spostato.push(sc.name); return true; },
+};
 H.activate(H.cards[0]);
+check('entrando porta l osservatore al punto di vista dello scenario',
+    spostato.join(',') === 'Manutenzione Elettromandrino', spostato.join(','));
+delete window.XRSession;
 check('premere una card carica lo scenario giusto',
     caricati.join(',') === 'Manutenzione Elettromandrino', caricati.join(','));
 check('passando dalla stessa loadScenario del mouse', pagina === 'scenario');

@@ -117,15 +117,61 @@
             obs.observe(container, { attributes: true, attributeFilter: ['class'] });
         },
 
-        _loggedIn: function () {
+        _loggedIn: async function () {
             const lang = (window.currentUser && window.currentUser.language) || 'default';
             console.log(`[XRCover] Accesso riuscito (lingua: ${lang}).`);
 
             // Il velo se ne va, ma il gesto che lo ha tolto è ancora "fresco":
             // è con quello che XRSession entra in VR, senza chiederne un altro.
             this._remove();
-            if (window.XRSession && window.XRSession.enterAfterLogin) {
-                window.XRSession.enterAfterLogin();
+
+            const XS = window.XRSession;
+            if (!XS || !XS.enterAfterLogin) return;
+
+            const entrato = await XS.enterAfterLogin();
+            if (!entrato && XS.supported) this._offerVR();
+        },
+
+        /**
+         * Se l'ingresso automatico non è riuscito ma il visore c'è, si chiede il
+         * gesto invece di lasciare la griglia 2D.
+         *
+         * La selezione degli scenari deve avvenire in VR: mostrarla in 2D
+         * significa farla scegliere lì, ed è proprio ciò che il flusso esclude.
+         * L'ingresso automatico può mancare per una ragione sola e legittima —
+         * la user activation di ENTRA è scaduta mentre `core/` leggeva
+         * `users.txt` — e la cura è un tocco, non una pagina.
+         *
+         * Solo dove la VR **esiste**: sul desktop la home 2D è l'unica interfaccia
+         * possibile, e coprirla renderebbe il sito inutilizzabile.
+         */
+        _offerVR: function () {
+            if (document.getElementById('xrGate')) return;
+            console.log('[XRCover] Ingresso automatico non riuscito: chiedo il tocco invece di mostrare la scelta in 2D.');
+
+            const gate = document.createElement('div');
+            gate.id = 'xrGate';
+            const btn = document.createElement('button');
+            btn.id = 'xrGateEnter';
+            btn.type = 'button';
+            btn.textContent = '🥽  ENTRA IN VR';
+            gate.appendChild(btn);
+            document.body.appendChild(gate);
+            btn.focus();
+
+            btn.addEventListener('click', async () => {
+                btn.disabled = true;
+                const ok = await window.XRSession.enterAfterLogin();
+                btn.disabled = false;
+                if (ok && gate.parentNode) gate.parentNode.removeChild(gate);
+            });
+
+            // Uscendo dalla sessione si torna a questa schermata, non alla
+            // griglia 2D: la scelta resta una cosa che si fa dentro il mondo.
+            if (typeof window.XRSession.on === 'function') {
+                window.XRSession.on('exit', () => {
+                    if (!document.getElementById('xrGate')) document.body.appendChild(gate);
+                });
             }
         },
 

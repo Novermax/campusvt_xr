@@ -673,6 +673,65 @@
             console.log(`[XR] Rig posizionato a (${this.rig.position.x.toFixed(2)}, ${this.rig.position.y.toFixed(2)}, ${this.rig.position.z.toFixed(2)})`);
         },
 
+        /**
+         * Porta l'osservatore al punto di vista previsto da uno scenario.
+         *
+         * Serve quando lo scenario si sceglie **da dentro la VR**: `_placeRigAtCamera`
+         * gira una volta sola, all'ingresso, e da lì in poi il rig resta dove lo
+         * ha lasciato l'utente. Entrando nell'Elettromandrino dalla hall ci si
+         * ritrovava quindi ancora al centro della hall — che è l'origine, cioè
+         * *dentro* la macchina, che è modellata proprio lì attorno. Da dentro una
+         * lamiera non si vede niente, e la scena sembrava vuota pur essendo
+         * caricata.
+         *
+         * Il punto di vista lo dichiara già lo scenario con `CameraPos` e
+         * `CameraTarget`, gli stessi che sul desktop inquadrano la macchina.
+         * Qui si applicano al **rig**, proiettati a terra: in VR l'altezza degli
+         * occhi la dà il visore, non la configurazione, e imporla farebbe
+         * galleggiare o sprofondare.
+         *
+         * Non tocca `core/`: `applyScenarioConfiguration` continua a fare quel
+         * che faceva sulla camera, che in sessione immersiva viene comunque
+         * sovrascritta dalla posa del visore a ogni frame.
+         *
+         * @param {{cameraPos?:string, cameraTarget?:string, name?:string}} scenario
+         * @returns {boolean} true se il rig è stato spostato.
+         */
+        placeRigForScenario: function (scenario) {
+            if (!this.isPresenting || !this.rig || !scenario) return false;
+            const THREE = window.THREE;
+
+            const pos = this._vec3(scenario.cameraPos);
+            if (!pos) {
+                console.warn(`[XR] "${scenario.name}" non dichiara CameraPos: l'osservatore resta dov'è.`);
+                return false;
+            }
+
+            this.rig.position.x = pos.x;
+            this.rig.position.z = pos.z;
+            // La y resta quella calibrata: porta l'altezza occhi dell'operatore.
+
+            // Girato verso ciò che lo scenario vuole far guardare. Senza target
+            // si punta all'origine, che è dove stanno le macchine.
+            const target = this._vec3(scenario.cameraTarget) || new THREE.Vector3(0, 0, 0);
+            const dx = target.x - pos.x;
+            const dz = target.z - pos.z;
+            if (Math.hypot(dx, dz) > 1e-6) this.rig.rotation.y = Math.atan2(dx, dz) + Math.PI;
+
+            this.rig.updateMatrixWorld(true);
+            console.log(`[XR] Osservatore portato al punto di vista di "${scenario.name}": `
+                + `(${pos.x.toFixed(2)}, ${pos.z.toFixed(2)}).`);
+            return true;
+        },
+
+        /** "(x, y, z)" → Vector3. Il formato è quello di `homeconfig.ini`. */
+        _vec3: function (s) {
+            if (!s) return null;
+            const n = String(s).match(/-?\d+(?:\.\d+)?/g);
+            if (!n || n.length < 3) return null;
+            return new window.THREE.Vector3(parseFloat(n[0]), parseFloat(n[1]), parseFloat(n[2]));
+        },
+
         // =====================================================================
         // Scala del mondo
         // =====================================================================
