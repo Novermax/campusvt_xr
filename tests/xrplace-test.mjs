@@ -22,10 +22,17 @@ globalThis.document = {
     addEventListener() {},
     readyState: 'complete',
 };
+// localStorage vero (in memoria): la scala del mondo ci passa dentro, e uno
+// stub che dimentica tutto non direbbe se la scelta sopravvive alla pagina.
+const memoria = new Map();
 globalThis.window = {
     THREE,
     addEventListener() {},
-    localStorage: { getItem: () => null, setItem() {} },
+    localStorage: {
+        getItem: (k) => (memoria.has(k) ? memoria.get(k) : null),
+        setItem: (k, v) => memoria.set(k, String(v)),
+        removeItem: (k) => memoria.delete(k),
+    },
 };
 globalThis.localStorage = window.localStorage;
 globalThis.setTimeout = (fn) => 0;
@@ -184,6 +191,47 @@ rig.rotation.y = 0;
 XS.placeRigForScenario(elettromandrino);
 check('senza testa agganciata al rig, si torna a posizionare il rig e basta',
     Math.abs(rig.position.x - (-1.11)) < 1e-6 && Math.abs(rig.position.z - 3.97) < 1e-6);
+
+// ─────────────────────────────────────────────────────────────────────────
+// La scala del mondo, che non aveva alcun controllo.
+//
+// Il numero sul selettore e il mondo che si vede sono due cose diverse: la
+// scala vive sul RIG (rig.scale = 1 / scala). Se non ci arrivasse, il
+// selettore mostrerebbe il valore giusto e il mondo resterebbe grande come
+// prima — ed e' esattamente il dubbio sollevato dall'utente (2026-08-04).
+// ─────────────────────────────────────────────────────────────────────────
+
+XS.isPresenting = true;
+XS.rig = rig;
+rig.scale.setScalar(1);
+
+XS.setWorldScale(1.2);
+check('scegliendo 1,2 il rig si scala di 1/1,2',
+    Math.abs(rig.scale.x - 1 / 1.2) < 1e-9, rig.scale.x.toFixed(4));
+check('e la scelta viene ricordata', memoria.get('cvtxr.worldScale') === '1.200',
+    String(memoria.get('cvtxr.worldScale')));
+
+// Il caso vero: si sceglie sulla pagina 2D, PRIMA di entrare, quando il rig
+// non esiste ancora. All'ingresso deve essere applicata lo stesso.
+XS.rig = null;
+XS._worldScale = null;                       // come una pagina appena aperta
+check('senza rig la scelta non si perde, si rilegge', XS.getWorldScale() === 1.2);
+
+const rigNuovo = new THREE.Object3D();
+XS.rig = rigNuovo;
+XS._cameraRestore = {
+    worldPosition: new THREE.Vector3(0, 1.6, 3),
+    worldQuaternion: new THREE.Quaternion(),
+};
+XS.referenceSpaceType = 'local-floor';
+XS._placeRigAtCamera();
+check('e all ingresso in sessione arriva sul rig',
+    Math.abs(rigNuovo.scale.x - 1 / 1.2) < 1e-9, rigNuovo.scale.x.toFixed(4));
+
+// Fuori dai limiti non si accetta un mondo assurdo.
+XS.setWorldScale(99);
+check('una scala fuori scala viene riportata al massimo', XS.getWorldScale() === 4.0,
+    String(XS.getWorldScale()));
 
 console.log(fails ? `\n${fails} PROVE FALLITE` : '\nTutte le prove passate');
 process.exit(fails ? 1 : 0);

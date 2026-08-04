@@ -128,6 +128,26 @@
             add('WebXR', X.supported ? 'disponibile' : 'NON disponibile', !!X.supported);
             add('Scala mondo', X.getWorldScale().toFixed(2) + '×', true);
 
+            /*
+             * Il valore scelto e il valore **applicato** sono due cose diverse, e
+             * solo il secondo si sente addosso: la scala vive sul rig
+             * (`rig.scale = 1 / scala`), e se per qualunque motivo non ci
+             * arrivasse, il selettore continuerebbe a mostrare il numero giusto
+             * mentre il mondo resta della grandezza di prima. È esattamente il
+             * dubbio che non si può sciogliere da dentro il visore, dove non
+             * esiste console: qui diventa una riga da leggere all'uscita.
+             */
+            const atteso = 1 / X.getWorldScale();
+            const rig = X.rig ? X.rig.scale.x : null;
+            if (rig === null) {
+                add('Scala applicata', 'rig assente', false);
+            } else {
+                const ok = Math.abs(rig - atteso) < 1e-3;
+                add('Scala applicata', ok
+                    ? `sì (rig ${rig.toFixed(3)})`
+                    : `NO — rig ${rig.toFixed(3)}, atteso ${atteso.toFixed(3)}`, ok);
+            }
+
             // Fluidità: la domanda "perché perde la sincronia" si risolve qui.
             // Se i frame sforano ma il layer XR costa poco, il collo di
             // bottiglia non è nell'interazione.

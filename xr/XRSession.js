@@ -724,7 +724,11 @@
             if (horiz > 1e-6) this.rig.rotation.y = Math.atan2(-dir.x, -dir.z);
 
             this.rig.updateMatrixWorld(true);
-            console.log(`[XR] Rig posizionato a (${this.rig.position.x.toFixed(2)}, ${this.rig.position.y.toFixed(2)}, ${this.rig.position.z.toFixed(2)})`);
+            // La scala si dichiara qui, una volta per sessione: è l'unico punto
+            // in cui il valore scelto sulla pagina 2D diventa il mondo che si
+            // vede, e dentro il visore non c'è modo di controllarlo altrimenti.
+            console.log(`[XR] Rig posizionato a (${this.rig.position.x.toFixed(2)}, ${this.rig.position.y.toFixed(2)}, ${this.rig.position.z.toFixed(2)})`
+                + ` — scala mondo ${this.getWorldScale().toFixed(2)}× (rig ${this.rig.scale.x.toFixed(3)})`);
         },
 
         /**
